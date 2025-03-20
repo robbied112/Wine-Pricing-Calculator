@@ -1,0 +1,3 @@
+Web Pricing Calculator Notes
+
+cd C:\Users\robbi\Documents\wine-pricing-calculator
