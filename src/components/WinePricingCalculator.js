@@ -13,6 +13,7 @@ const DEFAULT_FORM_DATA = {
   useCustomExchangeRate: false,
   customExchangeRate: 1.09,
   bottleCost: '',
+  casePrice: '',
   casePackSize: 12,
   bottleSize: '750ml',
   diLogistics: 13,
@@ -22,6 +23,7 @@ const DEFAULT_FORM_DATA = {
   distributorMargin: 30,
   distributorBtgMargin: 27,
   retailerMargin: 33,
+  roundSrp: false,
 };
 
 // Input Panel Component
@@ -55,122 +57,6 @@ const InputPanel = ({
 
     <div className="grid grid-cols-2 gap-4 mb-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Bottle Cost</label>
-        <div className="flex">
-          <select
-            name="currency"
-            value={formData.currency}
-            onChange={handleCurrencyChange}
-            className="p-2 border border-gray-300 rounded-l-md bg-gray-100"
-          >
-            {CURRENCIES.map((currency) => (
-              <option key={currency} value={currency}>{currency}</option>
-            ))}
-          </select>
-          <input
-            type="number"
-            name="bottleCost"
-            value={formData.bottleCost}
-            onChange={handleInputChange}
-            className="w-full p-2 border border-gray-300 rounded-r-md"
-            min="0"
-            step="0.01"
-          />
-        </div>
-        {errors.bottleCost && <p className="text-red-500 text-xs mt-1">{errors.bottleCost}</p>}
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Exchange Rate</label>
-        <div className="flex flex-col">
-          <div className="flex items-center mb-2">
-            <span className="text-sm mr-2">Base Rate:</span>
-            <input
-              type="number"
-              name="exchangeRate"
-              value={formData.exchangeRate}
-              onChange={handleInputChange}
-              className="w-24 p-2 border border-gray-300 rounded-md text-center"
-              min="0"
-              step="0.01"
-              disabled={formData.currency === 'USD' || isExchangeRateLoading}
-            />
-            <button
-              className="ml-2 p-1 bg-gray-200 rounded-md hover:bg-gray-300 text-xs"
-              onClick={fetchCurrentExchangeRate}
-              disabled={formData.currency === 'USD' || isExchangeRateLoading}
-              type="button"
-            >
-              {isExchangeRateLoading ? 'Loading...' : 'Refresh'}
-            </button>
-          </div>
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center">
-              <span className="text-sm mr-2">Buffer (%):</span>
-              <div className="flex items-center">
-                <button
-                  className="p-1 bg-gray-200 rounded-md"
-                  onClick={() => setFormData((prev) => ({ ...prev, exchangeBuffer: Math.max(0, prev.exchangeBuffer - 1) }))}
-                  disabled={formData.currency === 'USD' || formData.useCustomExchangeRate}
-                  type="button"
-                >
-                  <MinusCircle className="w-4 h-4" />
-                </button>
-                <input
-                  type="number"
-                  name="exchangeBuffer"
-                  value={formData.exchangeBuffer}
-                  onChange={handleInputChange}
-                  className="w-12 mx-1 p-1 border border-gray-300 rounded-md text-center"
-                  min="0"
-                  disabled={formData.currency === 'USD' || formData.useCustomExchangeRate}
-                />
-                <button
-                  className="p-1 bg-gray-200 rounded-md"
-                  onClick={() => setFormData((prev) => ({ ...prev, exchangeBuffer: prev.exchangeBuffer + 1 }))}
-                  disabled={formData.currency === 'USD' || formData.useCustomExchangeRate}
-                  type="button"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="useCustomRate"
-              checked={formData.useCustomExchangeRate}
-              onChange={(e) => setFormData((prev) => ({ ...prev, useCustomExchangeRate: e.target.checked }))}
-              className="mr-2"
-              disabled={formData.currency === 'USD'}
-            />
-            <label htmlFor="useCustomRate" className="text-sm mr-2">Override Rate:</label>
-            <input
-              type="number"
-              name="customExchangeRate"
-              value={formData.customExchangeRate}
-              onChange={handleInputChange}
-              className="w-20 p-1 border border-gray-300 rounded-md text-center"
-              min="0"
-              step="0.0001"
-              disabled={formData.currency === 'USD' || !formData.useCustomExchangeRate}
-            />
-          </div>
-          <div className="text-xs text-gray-500 mt-1">
-            {formData.currency === 'EUR'
-              ? `Effective rate: ${formData.useCustomExchangeRate
-                  ? formData.customExchangeRate.toFixed(4)
-                  : (formData.exchangeRate * (1 + formData.exchangeBuffer / 100)).toFixed(4)}`
-              : 'N/A'}
-          </div>
-          {exchangeRateError && <p className="text-red-500 text-xs mt-1">{exchangeRateError}</p>}
-        </div>
-      </div>
-    </div>
-
-    <div className="grid grid-cols-2 gap-4 mb-4">
-      <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Case Pack Size</label>
         <select
           name="casePackSize"
@@ -196,6 +82,151 @@ const InputPanel = ({
           ))}
         </select>
       </div>
+    </div>
+
+    <div className="grid grid-cols-2 gap-4 mb-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Case Price</label>
+        <div className="flex">
+          <select
+            name="currency"
+            value={formData.currency}
+            onChange={handleCurrencyChange}
+            className="p-2 border border-gray-300 rounded-l-md bg-gray-100"
+          >
+            {CURRENCIES.map((currency) => (
+              <option key={currency} value={currency}>{currency}</option>
+            ))}
+          </select>
+          <input
+            type="number"
+            name="casePrice"
+            value={formData.casePrice}
+            onChange={handleInputChange}
+            className="w-full p-2 border border-gray-300 rounded-r-md"
+            min="0"
+            step="0.01"
+            placeholder="Enter case price"
+          />
+        </div>
+        {errors.casePrice && <p className="text-red-500 text-xs mt-1">{errors.casePrice}</p>}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Bottle Cost</label>
+        <div className="flex">
+          <input
+            type="number"
+            name="bottleCost"
+            value={formData.bottleCost}
+            onChange={handleInputChange}
+            className="w-full p-2 border border-gray-300 rounded-md"
+            min="0"
+            step="0.01"
+            placeholder="Enter bottle cost"
+          />
+        </div>
+        {errors.bottleCost && <p className="text-red-500 text-xs mt-1">{errors.bottleCost}</p>}
+      </div>
+    </div>
+
+    <div className="mb-4">
+      <label className="block text-sm font-medium text-gray-700 mb-1">Exchange Rate</label>
+      <div className="flex flex-col">
+        <div className="flex items-center mb-2">
+          <span className="text-sm mr-2">Base Rate:</span>
+          <input
+            type="number"
+            name="exchangeRate"
+            value={formData.exchangeRate}
+            onChange={handleInputChange}
+            className="w-24 p-2 border border-gray-300 rounded-md text-center"
+            min="0"
+            step="0.01"
+            disabled={formData.currency === 'USD' || isExchangeRateLoading}
+          />
+          <button
+            className="ml-2 p-1 bg-gray-200 rounded-md hover:bg-gray-300 text-xs"
+            onClick={fetchCurrentExchangeRate}
+            disabled={formData.currency === 'USD' || isExchangeRateLoading}
+            type="button"
+          >
+            {isExchangeRateLoading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center">
+            <span className="text-sm mr-2">Buffer (%):</span>
+            <div className="flex items-center">
+              <button
+                className="p-1 bg-gray-200 rounded-md"
+                onClick={() => setFormData((prev) => ({ ...prev, exchangeBuffer: Math.max(0, prev.exchangeBuffer - 1) }))}
+                disabled={formData.currency === 'USD' || formData.useCustomExchangeRate}
+                type="button"
+              >
+                <MinusCircle className="w-4 h-4" />
+              </button>
+              <input
+                type="number"
+                name="exchangeBuffer"
+                value={formData.exchangeBuffer}
+                onChange={handleInputChange}
+                className="w-12 mx-1 p-1 border border-gray-300 rounded-md text-center"
+                min="0"
+                disabled={formData.currency === 'USD' || formData.useCustomExchangeRate}
+              />
+              <button
+                className="p-1 bg-gray-200 rounded-md"
+                onClick={() => setFormData((prev) => ({ ...prev, exchangeBuffer: prev.exchangeBuffer + 1 }))}
+                disabled={formData.currency === 'USD' || formData.useCustomExchangeRate}
+                type="button"
+              >
+                <PlusCircle className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center">
+          <input
+            type="checkbox"
+            id="useCustomRate"
+            checked={formData.useCustomExchangeRate}
+            onChange={(e) => setFormData((prev) => ({ ...prev, useCustomExchangeRate: e.target.checked }))}
+            className="mr-2"
+            disabled={formData.currency === 'USD'}
+          />
+          <label htmlFor="useCustomRate" className="text-sm mr-2">Override Rate:</label>
+          <input
+            type="number"
+            name="customExchangeRate"
+            value={formData.customExchangeRate}
+            onChange={handleInputChange}
+            className="w-20 p-1 border border-gray-300 rounded-md text-center"
+            min="0"
+            step="0.0001"
+            disabled={formData.currency === 'USD' || !formData.useCustomExchangeRate}
+          />
+        </div>
+        <div className="text-xs text-gray-500 mt-1">
+          {formData.currency === 'EUR'
+            ? `Effective rate: ${formData.useCustomExchangeRate
+                ? formData.customExchangeRate.toFixed(4)
+                : (formData.exchangeRate * (1 + formData.exchangeBuffer / 100)).toFixed(4)}`
+            : 'N/A'}
+        </div>
+        {exchangeRateError && <p className="text-red-500 text-xs mt-1">{exchangeRateError}</p>}
+      </div>
+    </div>
+
+    <div className="mb-4 flex items-center">
+      <input
+        type="checkbox"
+        id="roundSrp"
+        checked={formData.roundSrp}
+        onChange={(e) => setFormData((prev) => ({ ...prev, roundSrp: e.target.checked }))}
+        className="mr-2"
+      />
+      <label htmlFor="roundSrp" className="text-sm">Round SRP to nearest .99</label>
     </div>
 
     <div className="mb-6">
@@ -315,17 +346,19 @@ const WinePricingCalculator = () => {
   const [displayView, setDisplayView] = useState('all');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [errors, setErrors] = useState({});
+  const [lastEdited, setLastEdited] = useState(null);
 
   // Calculation Logic
   const calculatePricing = useCallback(() => {
     const {
       bottleCost,
+      casePrice,
+      casePackSize,
       currency,
       exchangeRate,
       exchangeBuffer,
       useCustomExchangeRate,
       customExchangeRate,
-      casePackSize,
       diLogistics,
       tariff,
       statesideLogistics,
@@ -333,21 +366,31 @@ const WinePricingCalculator = () => {
       distributorMargin,
       distributorBtgMargin,
       retailerMargin,
+      roundSrp,
     } = formData;
 
+    let bottleCostUSD, caseCostUSD;
     const effectiveExchangeRate = currency === 'USD' ? 1 :
       useCustomExchangeRate ? customExchangeRate :
       exchangeRate * (1 + exchangeBuffer / 100);
 
-    const bottleCostUSD = bottleCost * effectiveExchangeRate;
-    const caseCost = bottleCostUSD * casePackSize;
+    if (bottleCost !== '' && casePrice === '') {
+      bottleCostUSD = parseFloat(bottleCost) * effectiveExchangeRate;
+      caseCostUSD = bottleCostUSD * casePackSize;
+    } else if (casePrice !== '' && bottleCost === '') {
+      caseCostUSD = parseFloat(casePrice) * effectiveExchangeRate;
+      bottleCostUSD = caseCostUSD / casePackSize;
+    } else {
+      bottleCostUSD = bottleCost !== '' ? parseFloat(bottleCost) * effectiveExchangeRate : 0;
+      caseCostUSD = casePrice !== '' ? parseFloat(casePrice) * effectiveExchangeRate : bottleCostUSD * casePackSize;
+    }
 
-    const supplierDiLaidInCost = caseCost;
+    const supplierDiLaidInCost = caseCostUSD;
     const supplierMarginAmount = supplierDiLaidInCost * (supplierMargin / 100);
     const supplierFobDi = supplierDiLaidInCost / (1 - supplierMargin / 100);
 
-    const tariffAmount = caseCost * (tariff / 100);
-    const supplierStatesideLaidInCost = caseCost + tariffAmount + diLogistics;
+    const tariffAmount = caseCostUSD * (tariff / 100);
+    const supplierStatesideLaidInCost = caseCostUSD + tariffAmount + diLogistics;
     const supplierSsFob = supplierStatesideLaidInCost / (1 - supplierMargin / 100);
 
     const distributorDiLaidInCost = (supplierFobDi * (1 + tariff / 100)) + diLogistics;
@@ -362,13 +405,27 @@ const WinePricingCalculator = () => {
     const distributorBtgPriceDi = (distributorDiLaidInCost / (1 - distributorBtgMargin / 100)) / casePackSize;
     const distributorBtgPriceSs = (distributorStatesideLaidInCost / (1 - distributorBtgMargin / 100)) / casePackSize;
 
-    const srpDi = distributorBottleWholesaleDi / (1 - retailerMargin / 100);
-    const srpSs = distributorBottleWholesaleSs / (1 - retailerMargin / 100);
+    let srpDi = distributorBottleWholesaleDi / (1 - retailerMargin / 100);
+    let srpSs = distributorBottleWholesaleSs / (1 - retailerMargin / 100);
+
+    let adjustedCaseWholesaleDi = distributorCaseWholesaleDi;
+    let adjustedBottleWholesaleDi = distributorBottleWholesaleDi;
+    let adjustedCaseWholesaleSs = distributorCaseWholesaleSs;
+    let adjustedBottleWholesaleSs = distributorBottleWholesaleSs;
+
+    if (roundSrp) {
+      srpDi = roundToNearest99(srpDi);
+      srpSs = roundToNearest99(srpSs);
+      adjustedBottleWholesaleDi = srpDi * (1 - retailerMargin / 100);
+      adjustedCaseWholesaleDi = adjustedBottleWholesaleDi * casePackSize;
+      adjustedBottleWholesaleSs = srpSs * (1 - retailerMargin / 100);
+      adjustedCaseWholesaleSs = adjustedBottleWholesaleSs * casePackSize;
+    }
 
     setCalculations({
       effectiveExchangeRate,
       bottleCostUSD,
-      caseCost,
+      caseCostUSD,
       supplierDiLaidInCost,
       supplierMarginAmount,
       supplierFobDi,
@@ -385,8 +442,19 @@ const WinePricingCalculator = () => {
       distributorBtgPriceSs,
       srpDi,
       srpSs,
+      adjustedCaseWholesaleDi,
+      adjustedBottleWholesaleDi,
+      adjustedCaseWholesaleSs,
+      adjustedBottleWholesaleSs,
     });
   }, [formData]);
+
+  // Fixed rounding to nearest .99 (below .40 rounds down, .40 and above rounds up)
+  const roundToNearest99 = (value) => {
+    const whole = Math.floor(value);
+    const decimal = value - whole;
+    return decimal < 0.40 ? whole - 1 + 0.99 : whole + 0.99;
+  };
 
   // Effects
   useEffect(() => {
@@ -408,16 +476,23 @@ const WinePricingCalculator = () => {
       const num = parseFloat(value);
       if (value !== "" && (num < 0 || num > 100)) error = "Must be 0-100";
       newValue = value === "" ? "" : num || 0;
-    } else if (name === "bottleCost" && value !== "" && parseFloat(value) < 0) {
+    } else if (["bottleCost", "casePrice"].includes(name) && value !== "" && parseFloat(value) < 0) {
       error = "Cost cannot be negative";
       newValue = value === "" ? "" : parseFloat(value) || 0;
     }
 
     setErrors((prev) => ({ ...prev, [name]: error }));
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === "wineName" ? value : newValue,
-    }));
+    setFormData((prev) => {
+      const newData = { ...prev, [name]: name === "wineName" ? value : newValue };
+      if (name === "bottleCost" && value !== "") {
+        newData.casePrice = parseFloat(value) * prev.casePackSize || "";
+        setLastEdited('bottleCost');
+      } else if (name === "casePrice" && value !== "") {
+        newData.bottleCost = parseFloat(value) / prev.casePackSize || "";
+        setLastEdited('casePrice');
+      }
+      return newData;
+    });
   }, []);
 
   const handleCurrencyChange = useCallback((e) => {
@@ -426,11 +501,19 @@ const WinePricingCalculator = () => {
 
   const handleSelectChange = useCallback((e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === "bottleSize" ? value : parseInt(value, 10),
-    }));
-  }, []);
+    setFormData((prev) => {
+      const newData = { ...prev, [name]: name === "bottleSize" ? value : parseInt(value, 10) };
+      if (name === "casePackSize") {
+        const newPackSize = parseInt(value, 10);
+        if (lastEdited === 'bottleCost' && prev.bottleCost !== "") {
+          newData.casePrice = parseFloat(prev.bottleCost) * newPackSize || "";
+        } else if (lastEdited === 'casePrice' && prev.casePrice !== "") {
+          newData.bottleCost = parseFloat(prev.casePrice) / newPackSize || "";
+        }
+      }
+      return newData;
+    });
+  }, [lastEdited]);
 
   const fetchCurrentExchangeRate = async () => {
     setIsExchangeRateLoading(true);
@@ -478,14 +561,13 @@ const WinePricingCalculator = () => {
       ['Parameter', 'Value'],
       ['Wine Name', formData.wineName],
       ['Currency', formData.currency],
+      ['Case Price', formData.casePrice],
       ['Bottle Cost', formData.bottleCost],
-      // Add more inputs as needed
       [],
       ['Calculation Results'],
       ['Direct Import Pricing'],
       ['Metric', 'Value'],
       ['SRP', calculations.srpDi ? calculations.srpDi.toFixed(2) : '0.00'],
-      // Add more results as needed
     ];
     const csvContent = csvRows.map(row => row.join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -503,7 +585,6 @@ const WinePricingCalculator = () => {
         <h1 style="text-align: center;">Wine Pricing Calculator</h1>
         <h2>${formData.wineName || 'Unnamed Wine'} - Pricing Report</h2>
         <p>Generated on: ${new Date().toLocaleString()}</p>
-        <!-- Simplified for brevity -->
       </div>
     `;
     const originalContent = document.body.innerHTML;
@@ -589,7 +670,7 @@ const WinePricingCalculator = () => {
                     <div className="text-gray-500">Per Bottle USD:</div>
                     <div className="text-right font-medium">{formatCurrency(calculations.bottleCostUSD || 0, 'USD')}</div>
                     <div className="text-gray-500">Case Cost:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.caseCost || 0, 'USD')}</div>
+                    <div className="text-right font-medium">{formatCurrency(calculations.caseCostUSD || 0, 'USD')}</div>
                     <div className="text-gray-500">DI Laid in Cost:</div>
                     <div className="text-right font-medium">{formatCurrency(calculations.supplierDiLaidInCost || 0, 'USD')}</div>
                     <div className="text-gray-500">Supplier FOB DI:</div>
@@ -616,11 +697,21 @@ const WinePricingCalculator = () => {
                 <div>
                   <h4 className="text-sm font-medium text-gray-600 mb-3">Retail Pricing</h4>
                   <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="text-gray-500">Case Wholesale:</div>
+                    <div className="text-right font-medium">{formatCurrency(calculations.distributorCaseWholesaleDi || 0, 'USD')}</div>
+                    <div className="text-gray-500">Bottle Wholesale:</div>
+                    <div className="text-right font-medium">{formatCurrency(calculations.distributorBottleWholesaleDi || 0, 'USD')}</div>
                     <div className="text-gray-500">SRP:</div>
                     <div className="text-right font-medium text-lg text-blue-700">{formatCurrency(calculations.srpDi || 0, 'USD')}</div>
                     <div className="text-gray-500">BTG:</div>
                     <div className="text-right font-medium text-lg text-green-700">{formatCurrency(calculations.distributorBtgPriceDi || 0, 'USD')}</div>
                   </div>
+                  {formData.roundSrp && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleDi || 0, 'USD')}<br />
+                      Adjusted Bottle Wholesale: {formatCurrency(calculations.adjustedBottleWholesaleDi || 0, 'USD')}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -632,7 +723,7 @@ const WinePricingCalculator = () => {
                   <h4 className="text-sm font-medium text-gray-600 mb-3">Supplier Calculations</h4>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="text-gray-500">Case Cost:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.caseCost || 0, 'USD')}</div>
+                    <div className="text-right font-medium">{formatCurrency(calculations.caseCostUSD || 0, 'USD')}</div>
                     <div className="text-gray-500">Tariff Amount:</div>
                     <div className="text-right font-medium">{formatCurrency(calculations.tariffAmount || 0, 'USD')}</div>
                     <div className="text-gray-500">DI Logistics:</div>
@@ -663,11 +754,21 @@ const WinePricingCalculator = () => {
                 <div>
                   <h4 className="text-sm font-medium text-gray-600 mb-3">Retail Pricing</h4>
                   <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="text-gray-500">Case Wholesale:</div>
+                    <div className="text-right font-medium">{formatCurrency(calculations.distributorCaseWholesaleSs || 0, 'USD')}</div>
+                    <div className="text-gray-500">Bottle Wholesale:</div>
+                    <div className="text-right font-medium">{formatCurrency(calculations.distributorBottleWholesaleSs || 0, 'USD')}</div>
                     <div className="text-gray-500">SRP:</div>
                     <div className="text-right font-medium text-lg text-blue-700">{formatCurrency(calculations.srpSs || 0, 'USD')}</div>
                     <div className="text-gray-500">BTG:</div>
                     <div className="text-right font-medium text-lg text-green-700">{formatCurrency(calculations.distributorBtgPriceSs || 0, 'USD')}</div>
                   </div>
+                  {formData.roundSrp && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleSs || 0, 'USD')}<br />
+                      Adjusted Bottle Wholesale: {formatCurrency(calculations.adjustedBottleWholesaleSs || 0, 'USD')}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
