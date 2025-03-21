@@ -24,6 +24,7 @@ const DEFAULT_FORM_DATA = {
   distributorBtgMargin: 27,
   retailerMargin: 33,
   roundSrp: false,
+  casesSold: '',
 };
 
 // Input Panel Component
@@ -50,7 +51,7 @@ const InputPanel = ({
         name="wineName"
         value={formData.wineName}
         onChange={handleInputChange}
-        className="w-full p-2 border border-gray-300 rounded-md"
+        className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
         placeholder="Enter wine name"
       />
     </div>
@@ -62,7 +63,7 @@ const InputPanel = ({
           name="casePackSize"
           value={formData.casePackSize}
           onChange={handleSelectChange}
-          className="w-full p-2 border border-gray-300 rounded-md"
+          className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
         >
           {CASE_PACK_SIZES.map((size) => (
             <option key={size} value={size}>{size}</option>
@@ -75,7 +76,7 @@ const InputPanel = ({
           name="bottleSize"
           value={formData.bottleSize}
           onChange={handleSelectChange}
-          className="w-full p-2 border border-gray-300 rounded-md"
+          className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
         >
           {BOTTLE_SIZES.map((size) => (
             <option key={size} value={size}>{size}</option>
@@ -92,7 +93,7 @@ const InputPanel = ({
             name="currency"
             value={formData.currency}
             onChange={handleCurrencyChange}
-            className="p-2 border border-gray-300 rounded-l-md bg-gray-100"
+            className="w-14 p-2 border border-gray-300 rounded-l-md bg-gray-100 focus:ring-blue-500 focus:border-blue-500"
           >
             {CURRENCIES.map((currency) => (
               <option key={currency} value={currency}>{currency}</option>
@@ -103,7 +104,7 @@ const InputPanel = ({
             name="casePrice"
             value={formData.casePrice}
             onChange={handleInputChange}
-            className="w-full p-2 border border-gray-300 rounded-r-md"
+            className="flex-1 p-2 border border-gray-300 rounded-r-md focus:ring-blue-500 focus:border-blue-500 min-w-0"
             min="0"
             step="0.01"
             placeholder="Enter case price"
@@ -120,7 +121,7 @@ const InputPanel = ({
             name="bottleCost"
             value={formData.bottleCost}
             onChange={handleInputChange}
-            className="w-full p-2 border border-gray-300 rounded-md"
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 min-w-0"
             min="0"
             step="0.01"
             placeholder="Enter bottle cost"
@@ -140,7 +141,7 @@ const InputPanel = ({
             name="exchangeRate"
             value={formData.exchangeRate}
             onChange={handleInputChange}
-            className="w-24 p-2 border border-gray-300 rounded-md text-center"
+            className="w-24 p-2 border border-gray-300 rounded-md text-center focus:ring-blue-500 focus:border-blue-500"
             min="0"
             step="0.01"
             disabled={formData.currency === 'USD' || isExchangeRateLoading}
@@ -171,7 +172,7 @@ const InputPanel = ({
                 name="exchangeBuffer"
                 value={formData.exchangeBuffer}
                 onChange={handleInputChange}
-                className="w-12 mx-1 p-1 border border-gray-300 rounded-md text-center"
+                className="w-12 mx-1 p-1 border border-gray-300 rounded-md text-center focus:ring-blue-500 focus:border-blue-500"
                 min="0"
                 disabled={formData.currency === 'USD' || formData.useCustomExchangeRate}
               />
@@ -201,7 +202,7 @@ const InputPanel = ({
             name="customExchangeRate"
             value={formData.customExchangeRate}
             onChange={handleInputChange}
-            className="w-20 p-1 border border-gray-300 rounded-md text-center"
+            className="w-20 p-1 border border-gray-300 rounded-md text-center focus:ring-blue-500 focus:border-blue-500"
             min="0"
             step="0.0001"
             disabled={formData.currency === 'USD' || !formData.useCustomExchangeRate}
@@ -209,9 +210,11 @@ const InputPanel = ({
         </div>
         <div className="text-xs text-gray-500 mt-1">
           {formData.currency === 'EUR'
-            ? `Effective rate: ${formData.useCustomExchangeRate
-                ? formData.customExchangeRate.toFixed(4)
-                : (formData.exchangeRate * (1 + formData.exchangeBuffer / 100)).toFixed(4)}`
+            ? `Effective rate: ${
+                formData.useCustomExchangeRate
+                  ? parseFloat(formData.customExchangeRate).toFixed(4)
+                  : (formData.exchangeRate * (1 + formData.exchangeBuffer / 100)).toFixed(4)
+              }`
             : 'N/A'}
         </div>
         {exchangeRateError && <p className="text-red-500 text-xs mt-1">{exchangeRateError}</p>}
@@ -249,7 +252,7 @@ const InputPanel = ({
             name="diLogistics"
             value={formData.diLogistics}
             onChange={handleInputChange}
-            className="w-full p-2 border border-gray-300 rounded-md"
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
             min="0"
             step="0.01"
           />
@@ -261,7 +264,7 @@ const InputPanel = ({
             name="tariff"
             value={formData.tariff}
             onChange={handleInputChange}
-            className="w-full p-2 border border-gray-300 rounded-md"
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
             min="0"
             max="200"
           />
@@ -273,7 +276,7 @@ const InputPanel = ({
             name="statesideLogistics"
             value={formData.statesideLogistics}
             onChange={handleInputChange}
-            className="w-full p-2 border border-gray-300 rounded-md"
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
             min="0"
             step="0.01"
           />
@@ -286,7 +289,7 @@ const InputPanel = ({
               name="supplierMargin"
               value={formData.supplierMargin}
               onChange={handleInputChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               min="0"
               max="100"
             />
@@ -299,20 +302,20 @@ const InputPanel = ({
               name="distributorMargin"
               value={formData.distributorMargin}
               onChange={handleInputChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               min="0"
               max="100"
             />
             {errors.distributorMargin && <p className="text-red-500 text-xs mt-1">{errors.distributorMargin}</p>}
           </div>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Distributor BTG Margin (%)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Dist BTG Margin (%)</label>
             <input
               type="number"
               name="distributorBtgMargin"
               value={formData.distributorBtgMargin}
               onChange={handleInputChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               min="0"
               max="100"
             />
@@ -325,12 +328,25 @@ const InputPanel = ({
               name="retailerMargin"
               value={formData.retailerMargin}
               onChange={handleInputChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               min="0"
               max="100"
             />
             {errors.retailerMargin && <p className="text-red-500 text-xs mt-1">{errors.retailerMargin}</p>}
           </div>
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Cases Sold (for Gross Profit)</label>
+          <input
+            type="number"
+            name="casesSold"
+            value={formData.casesSold}
+            onChange={handleInputChange}
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            min="0"
+            step="1"
+            placeholder="Enter number of cases sold"
+          />
         </div>
       </>
     )}
@@ -343,8 +359,8 @@ const WinePricingCalculator = () => {
   const [calculations, setCalculations] = useState({});
   const [isExchangeRateLoading, setIsExchangeRateLoading] = useState(false);
   const [exchangeRateError, setExchangeRateError] = useState(null);
-  const [displayView, setDisplayView] = useState('all');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showGrossProfit, setShowGrossProfit] = useState(false);
   const [errors, setErrors] = useState({});
   const [lastEdited, setLastEdited] = useState(null);
 
@@ -367,46 +383,47 @@ const WinePricingCalculator = () => {
       distributorBtgMargin,
       retailerMargin,
       roundSrp,
+      casesSold,
     } = formData;
 
     let bottleCostUSD, caseCostUSD;
     const effectiveExchangeRate = currency === 'USD' ? 1 :
-      useCustomExchangeRate ? customExchangeRate :
-      exchangeRate * (1 + exchangeBuffer / 100);
+      useCustomExchangeRate ? parseFloat(customExchangeRate) :
+      parseFloat(exchangeRate) * (1 + parseFloat(exchangeBuffer) / 100);
 
     if (bottleCost !== '' && casePrice === '') {
       bottleCostUSD = parseFloat(bottleCost) * effectiveExchangeRate;
-      caseCostUSD = bottleCostUSD * casePackSize;
+      caseCostUSD = (bottleCostUSD * casePackSize).toFixed(2);
     } else if (casePrice !== '' && bottleCost === '') {
-      caseCostUSD = parseFloat(casePrice) * effectiveExchangeRate;
-      bottleCostUSD = caseCostUSD / casePackSize;
+      caseCostUSD = (parseFloat(casePrice) * effectiveExchangeRate).toFixed(2);
+      bottleCostUSD = (caseCostUSD / casePackSize).toFixed(2);
     } else {
-      bottleCostUSD = bottleCost !== '' ? parseFloat(bottleCost) * effectiveExchangeRate : 0;
-      caseCostUSD = casePrice !== '' ? parseFloat(casePrice) * effectiveExchangeRate : bottleCostUSD * casePackSize;
+      bottleCostUSD = bottleCost !== '' ? (parseFloat(bottleCost) * effectiveExchangeRate).toFixed(2) : 0;
+      caseCostUSD = casePrice !== '' ? (parseFloat(casePrice) * effectiveExchangeRate).toFixed(2) : (bottleCostUSD * casePackSize).toFixed(2);
     }
 
-    const supplierDiLaidInCost = caseCostUSD;
-    const supplierMarginAmount = supplierDiLaidInCost * (supplierMargin / 100);
-    const supplierFobDi = supplierDiLaidInCost / (1 - supplierMargin / 100);
+    const supplierDiLaidInCost = parseFloat(caseCostUSD);
+    const supplierMarginAmount = (supplierDiLaidInCost * (supplierMargin / 100)).toFixed(2);
+    const supplierFobDi = (supplierDiLaidInCost / (1 - supplierMargin / 100)).toFixed(2);
 
-    const tariffAmount = caseCostUSD * (tariff / 100);
-    const supplierStatesideLaidInCost = caseCostUSD + tariffAmount + diLogistics;
-    const supplierSsFob = supplierStatesideLaidInCost / (1 - supplierMargin / 100);
+    const tariffAmount = (caseCostUSD * (tariff / 100)).toFixed(2);
+    const supplierStatesideLaidInCost = (parseFloat(caseCostUSD) + parseFloat(tariffAmount) + parseFloat(diLogistics)).toFixed(2);
+    const supplierSsFob = (supplierStatesideLaidInCost / (1 - supplierMargin / 100)).toFixed(2);
 
-    const distributorDiLaidInCost = (supplierFobDi * (1 + tariff / 100)) + diLogistics;
-    const distributorStatesideLaidInCost = supplierSsFob + statesideLogistics;
+    const distributorDiLaidInCost = (parseFloat(supplierFobDi) * (1 + tariff / 100) + parseFloat(diLogistics)).toFixed(2);
+    const distributorStatesideLaidInCost = (parseFloat(supplierSsFob) + parseFloat(statesideLogistics)).toFixed(2);
 
-    const distributorCaseWholesaleDi = distributorDiLaidInCost / (1 - distributorMargin / 100);
-    const distributorBottleWholesaleDi = distributorCaseWholesaleDi / casePackSize;
+    const distributorCaseWholesaleDi = (distributorDiLaidInCost / (1 - distributorMargin / 100)).toFixed(2);
+    const distributorBottleWholesaleDi = (distributorCaseWholesaleDi / casePackSize).toFixed(2);
 
-    const distributorCaseWholesaleSs = distributorStatesideLaidInCost / (1 - distributorMargin / 100);
-    const distributorBottleWholesaleSs = distributorCaseWholesaleSs / casePackSize;
+    const distributorCaseWholesaleSs = (distributorStatesideLaidInCost / (1 - distributorMargin / 100)).toFixed(2);
+    const distributorBottleWholesaleSs = (distributorCaseWholesaleSs / casePackSize).toFixed(2);
 
-    const distributorBtgPriceDi = (distributorDiLaidInCost / (1 - distributorBtgMargin / 100)) / casePackSize;
-    const distributorBtgPriceSs = (distributorStatesideLaidInCost / (1 - distributorBtgMargin / 100)) / casePackSize;
+    const distributorBtgPriceDi = ((distributorDiLaidInCost / (1 - distributorBtgMargin / 100)) / casePackSize).toFixed(2);
+    const distributorBtgPriceSs = ((distributorStatesideLaidInCost / (1 - distributorBtgMargin / 100)) / casePackSize).toFixed(2);
 
-    let srpDi = distributorBottleWholesaleDi / (1 - retailerMargin / 100);
-    let srpSs = distributorBottleWholesaleSs / (1 - retailerMargin / 100);
+    let srpDi = (distributorBottleWholesaleDi / (1 - retailerMargin / 100)).toFixed(2);
+    let srpSs = (distributorBottleWholesaleSs / (1 - retailerMargin / 100)).toFixed(2);
 
     let adjustedCaseWholesaleDi = distributorCaseWholesaleDi;
     let adjustedBottleWholesaleDi = distributorBottleWholesaleDi;
@@ -416,11 +433,18 @@ const WinePricingCalculator = () => {
     if (roundSrp) {
       srpDi = roundToNearest99(srpDi);
       srpSs = roundToNearest99(srpSs);
-      adjustedBottleWholesaleDi = srpDi * (1 - retailerMargin / 100);
-      adjustedCaseWholesaleDi = adjustedBottleWholesaleDi * casePackSize;
-      adjustedBottleWholesaleSs = srpSs * (1 - retailerMargin / 100);
-      adjustedCaseWholesaleSs = adjustedBottleWholesaleSs * casePackSize;
+      adjustedBottleWholesaleDi = (srpDi * (1 - retailerMargin / 100)).toFixed(2);
+      adjustedCaseWholesaleDi = (adjustedBottleWholesaleDi * casePackSize).toFixed(2);
+      adjustedBottleWholesaleSs = (srpSs * (1 - retailerMargin / 100)).toFixed(2);
+      adjustedCaseWholesaleSs = (adjustedBottleWholesaleSs * casePackSize).toFixed(2);
     }
+
+    // Gross Profit Calculations
+    const cases = parseFloat(casesSold) || 0;
+    const supplierGrossProfitDi = (cases * (parseFloat(supplierFobDi) - parseFloat(supplierDiLaidInCost))).toFixed(2);
+    const supplierGrossProfitSs = (cases * (parseFloat(supplierSsFob) - parseFloat(supplierStatesideLaidInCost))).toFixed(2);
+    const distributorGrossProfitDi = (cases * (parseFloat(distributorCaseWholesaleDi) - parseFloat(distributorDiLaidInCost))).toFixed(2);
+    const distributorGrossProfitSs = (cases * (parseFloat(distributorCaseWholesaleSs) - parseFloat(distributorStatesideLaidInCost))).toFixed(2);
 
     setCalculations({
       effectiveExchangeRate,
@@ -446,10 +470,14 @@ const WinePricingCalculator = () => {
       adjustedBottleWholesaleDi,
       adjustedCaseWholesaleSs,
       adjustedBottleWholesaleSs,
+      supplierGrossProfitDi,
+      supplierGrossProfitSs,
+      distributorGrossProfitDi,
+      distributorGrossProfitSs,
     });
   }, [formData]);
 
-  // Fixed rounding to nearest .99 (below .40 rounds down, .40 and above rounds up)
+  // Fixed rounding to nearest .99
   const roundToNearest99 = (value) => {
     const whole = Math.floor(value);
     const decimal = value - whole;
@@ -479,16 +507,18 @@ const WinePricingCalculator = () => {
     } else if (["bottleCost", "casePrice"].includes(name) && value !== "" && parseFloat(value) < 0) {
       error = "Cost cannot be negative";
       newValue = value === "" ? "" : parseFloat(value) || 0;
+    } else if (["exchangeRate", "customExchangeRate", "exchangeBuffer", "diLogistics", "tariff", "statesideLogistics", "casesSold"].includes(name)) {
+      newValue = value === "" ? "" : parseFloat(value) || 0;
     }
 
     setErrors((prev) => ({ ...prev, [name]: error }));
     setFormData((prev) => {
       const newData = { ...prev, [name]: name === "wineName" ? value : newValue };
       if (name === "bottleCost" && value !== "") {
-        newData.casePrice = parseFloat(value) * prev.casePackSize || "";
+        newData.casePrice = (parseFloat(value) * prev.casePackSize).toFixed(2) || "";
         setLastEdited('bottleCost');
       } else if (name === "casePrice" && value !== "") {
-        newData.bottleCost = parseFloat(value) / prev.casePackSize || "";
+        newData.bottleCost = (parseFloat(value) / prev.casePackSize).toFixed(2) || "";
         setLastEdited('casePrice');
       }
       return newData;
@@ -506,9 +536,9 @@ const WinePricingCalculator = () => {
       if (name === "casePackSize") {
         const newPackSize = parseInt(value, 10);
         if (lastEdited === 'bottleCost' && prev.bottleCost !== "") {
-          newData.casePrice = parseFloat(prev.bottleCost) * newPackSize || "";
+          newData.casePrice = (parseFloat(prev.bottleCost) * newPackSize).toFixed(2) || "";
         } else if (lastEdited === 'casePrice' && prev.casePrice !== "") {
-          newData.bottleCost = parseFloat(prev.casePrice) / newPackSize || "";
+          newData.bottleCost = (parseFloat(prev.casePrice) / newPackSize).toFixed(2) || "";
         }
       }
       return newData;
@@ -563,11 +593,36 @@ const WinePricingCalculator = () => {
       ['Currency', formData.currency],
       ['Case Price', formData.casePrice],
       ['Bottle Cost', formData.bottleCost],
+      ['Cases Sold', formData.casesSold],
       [],
-      ['Calculation Results'],
-      ['Direct Import Pricing'],
+      ['Direct Import Pricing - Supplier Calculations'],
       ['Metric', 'Value'],
-      ['SRP', calculations.srpDi ? calculations.srpDi.toFixed(2) : '0.00'],
+      ['Per Bottle USD', calculations.bottleCostUSD ? calculations.bottleCostUSD : '0.00'],
+      ['Case Cost', calculations.caseCostUSD ? calculations.caseCostUSD : '0.00'],
+      ['DI Laid in Cost', calculations.supplierDiLaidInCost ? calculations.supplierDiLaidInCost : '0.00'],
+      ['Supplier FOB DI', calculations.supplierFobDi ? calculations.supplierFobDi : '0.00'],
+      ['Distributor DI Laid in Cost', calculations.distributorDiLaidInCost ? calculations.distributorDiLaidInCost : '0.00'],
+      ['Distributor Case Wholesale', calculations.distributorCaseWholesaleDi ? calculations.distributorCaseWholesaleDi : '0.00'],
+      ['Distributor Bottle Wholesale', calculations.distributorBottleWholesaleDi ? calculations.distributorBottleWholesaleDi : '0.00'],
+      ['Distributor BTG Price', calculations.distributorBtgPriceDi ? calculations.distributorBtgPriceDi : '0.00'],
+      ['SRP', calculations.srpDi ? calculations.srpDi : '0.00'],
+      ['Supplier Gross Profit (DI)', calculations.supplierGrossProfitDi ? calculations.supplierGrossProfitDi : '0.00'],
+      ['Distributor Gross Profit (DI)', calculations.distributorGrossProfitDi ? calculations.distributorGrossProfitDi : '0.00'],
+      [],
+      ['Stateside Inventory Pricing - Supplier Calculations'],
+      ['Metric', 'Value'],
+      ['Case Cost', calculations.caseCostUSD ? calculations.caseCostUSD : '0.00'],
+      ['Tariff Amount', calculations.tariffAmount ? calculations.tariffAmount : '0.00'],
+      ['DI Logistics', formData.diLogistics ? formData.diLogistics.toFixed(2) : '0.00'],
+      ['SS Laid in Cost', calculations.supplierStatesideLaidInCost ? calculations.supplierStatesideLaidInCost : '0.00'],
+      ['Supplier FOB SS', calculations.supplierSsFob ? calculations.supplierSsFob : '0.00'],
+      ['Distributor SS Laid in Cost', calculations.distributorStatesideLaidInCost ? calculations.distributorStatesideLaidInCost : '0.00'],
+      ['Distributor Case Wholesale', calculations.distributorCaseWholesaleSs ? calculations.distributorCaseWholesaleSs : '0.00'],
+      ['Distributor Bottle Wholesale', calculations.distributorBottleWholesaleSs ? calculations.distributorBottleWholesaleSs : '0.00'],
+      ['Distributor BTG Price', calculations.distributorBtgPriceSs ? calculations.distributorBtgPriceSs : '0.00'],
+      ['SRP', calculations.srpSs ? calculations.srpSs : '0.00'],
+      ['Supplier Gross Profit (SS)', calculations.supplierGrossProfitSs ? calculations.supplierGrossProfitSs : '0.00'],
+      ['Distributor Gross Profit (SS)', calculations.distributorGrossProfitSs ? calculations.distributorGrossProfitSs : '0.00'],
     ];
     const csvContent = csvRows.map(row => row.join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -645,134 +700,104 @@ const WinePricingCalculator = () => {
         />
 
         <div className="md:col-span-2">
-          <div className="bg-white mb-6">
-            <div className="flex border-b border-gray-200 mb-4">
-              {['all', 'supplier', 'distributor', 'retail'].map(view => (
-                <button
-                  key={view}
-                  className={`px-4 py-2 text-sm font-medium ${displayView === view ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                  onClick={() => setDisplayView(view)}
-                  type="button"
-                >
-                  {view.charAt(0).toUpperCase() + view.slice(1)} View
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
               <h3 className="text-lg font-semibold mb-4 text-gray-800">Direct Import Pricing</h3>
-              {(displayView === 'all' || displayView === 'supplier') && (
-                <div className="mb-4 border-b pb-4">
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">Supplier Calculations</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-gray-500">Per Bottle USD:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.bottleCostUSD || 0, 'USD')}</div>
-                    <div className="text-gray-500">Case Cost:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.caseCostUSD || 0, 'USD')}</div>
-                    <div className="text-gray-500">DI Laid in Cost:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.supplierDiLaidInCost || 0, 'USD')}</div>
-                    <div className="text-gray-500">Supplier FOB DI:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.supplierFobDi || 0, 'USD')}</div>
-                  </div>
+              <div className="mb-4 border-b pb-4">
+                <h4 className="text-sm font-medium text-gray-600 mb-3">Supplier Calculations</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="text-gray-500">Per Bottle USD:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.bottleCostUSD || 0, 'USD')}</div>
+                  <div className="text-gray-500">Case Cost:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.caseCostUSD || 0, 'USD')}</div>
+                  <div className="text-gray-500">DI Laid in Cost:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.supplierDiLaidInCost || 0, 'USD')}</div>
+                  <div className="text-gray-500">Supplier FOB DI:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.supplierFobDi || 0, 'USD')}</div>
+                  <div className="text-gray-500">Distributor DI Laid in Cost:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.distributorDiLaidInCost || 0, 'USD')}</div>
+                  <div className="text-gray-500">Distributor Case Wholesale:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.distributorCaseWholesaleDi || 0, 'USD')}</div>
+                  <div className="text-gray-500">Distributor Bottle Wholesale:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.distributorBottleWholesaleDi || 0, 'USD')}</div>
+                  <div className="text-gray-500">Distributor BTG Price:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.distributorBtgPriceDi || 0, 'USD')}</div>
+                  <div className="text-gray-500">SRP:</div>
+                  <div className="text-right font-medium text-lg text-blue-700">{formatCurrency(calculations.srpDi || 0, 'USD')}</div>
                 </div>
-              )}
-              {(displayView === 'all' || displayView === 'distributor') && (
-                <div className="mb-4 border-b pb-4">
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">Distributor Calculations</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-gray-500">DI Laid in Cost:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorDiLaidInCost || 0, 'USD')}</div>
-                    <div className="text-gray-500">Case Wholesale:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorCaseWholesaleDi || 0, 'USD')}</div>
-                    <div className="text-gray-500">Bottle Wholesale:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorBottleWholesaleDi || 0, 'USD')}</div>
-                    <div className="text-gray-500">BTG Price:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorBtgPriceDi || 0, 'USD')}</div>
+                {formData.roundSrp && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleDi || 0, 'USD')}<br />
+                    Adjusted Bottle Wholesale: {formatCurrency(calculations.adjustedBottleWholesaleDi || 0, 'USD')}
                   </div>
-                </div>
-              )}
-              {(displayView === 'all' || displayView === 'retail') && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">Retail Pricing</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-gray-500">Case Wholesale:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorCaseWholesaleDi || 0, 'USD')}</div>
-                    <div className="text-gray-500">Bottle Wholesale:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorBottleWholesaleDi || 0, 'USD')}</div>
-                    <div className="text-gray-500">SRP:</div>
-                    <div className="text-right font-medium text-lg text-blue-700">{formatCurrency(calculations.srpDi || 0, 'USD')}</div>
-                    <div className="text-gray-500">BTG:</div>
-                    <div className="text-right font-medium text-lg text-green-700">{formatCurrency(calculations.distributorBtgPriceDi || 0, 'USD')}</div>
-                  </div>
-                  {formData.roundSrp && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleDi || 0, 'USD')}<br />
-                      Adjusted Bottle Wholesale: {formatCurrency(calculations.adjustedBottleWholesaleDi || 0, 'USD')}
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             <div className="bg-white p-6 rounded-lg shadow border border-gray-100">
               <h3 className="text-lg font-semibold mb-4 text-gray-800">Stateside Inventory Pricing</h3>
-              {(displayView === 'all' || displayView === 'supplier') && (
-                <div className="mb-4 border-b pb-4">
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">Supplier Calculations</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-gray-500">Case Cost:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.caseCostUSD || 0, 'USD')}</div>
-                    <div className="text-gray-500">Tariff Amount:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.tariffAmount || 0, 'USD')}</div>
-                    <div className="text-gray-500">DI Logistics:</div>
-                    <div className="text-right font-medium">{formatCurrency(formData.diLogistics || 0, 'USD')}</div>
-                    <div className="text-gray-500">SS Laid in Cost:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.supplierStatesideLaidInCost || 0, 'USD')}</div>
-                    <div className="text-gray-500">SS FOB:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.supplierSsFob || 0, 'USD')}</div>
-                  </div>
+              <div className="mb-4 border-b pb-4">
+                <h4 className="text-sm font-medium text-gray-600 mb-3">Supplier Calculations</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="text-gray-500">Case Cost:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.caseCostUSD || 0, 'USD')}</div>
+                  <div className="text-gray-500">Tariff Amount:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.tariffAmount || 0, 'USD')}</div>
+                  <div className="text-gray-500">DI Logistics:</div>
+                  <div className="text-right font-medium">{formatCurrency(formData.diLogistics || 0, 'USD')}</div>
+                  <div className="text-gray-500">SS Laid in Cost:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.supplierStatesideLaidInCost || 0, 'USD')}</div>
+                  <div className="text-gray-500">Supplier FOB SS:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.supplierSsFob || 0, 'USD')}</div>
+                  <div className="text-gray-500">Distributor SS Laid in Cost:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.distributorStatesideLaidInCost || 0, 'USD')}</div>
+                  <div className="text-gray-500">Distributor Case Wholesale:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.distributorCaseWholesaleSs || 0, 'USD')}</div>
+                  <div className="text-gray-500">Distributor Bottle Wholesale:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.distributorBottleWholesaleSs || 0, 'USD')}</div>
+                  <div className="text-gray-500">Distributor BTG Price:</div>
+                  <div className="text-right font-medium">{formatCurrency(calculations.distributorBtgPriceSs || 0, 'USD')}</div>
+                  <div className="text-gray-500">SRP:</div>
+                  <div className="text-right font-medium text-lg text-blue-700">{formatCurrency(calculations.srpSs || 0, 'USD')}</div>
                 </div>
-              )}
-              {(displayView === 'all' || displayView === 'distributor') && (
-                <div className="mb-4 border-b pb-4">
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">Distributor Calculations</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-gray-500">SS Laid in Cost:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorStatesideLaidInCost || 0, 'USD')}</div>
-                    <div className="text-gray-500">Case Wholesale:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorCaseWholesaleSs || 0, 'USD')}</div>
-                    <div className="text-gray-500">Bottle Wholesale:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorBottleWholesaleSs || 0, 'USD')}</div>
-                    <div className="text-gray-500">BTG Price:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorBtgPriceSs || 0, 'USD')}</div>
+                {formData.roundSrp && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleSs || 0, 'USD')}<br />
+                    Adjusted Bottle Wholesale: {formatCurrency(calculations.adjustedBottleWholesaleSs || 0, 'USD')}
                   </div>
-                </div>
-              )}
-              {(displayView === 'all' || displayView === 'retail') && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">Retail Pricing</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-gray-500">Case Wholesale:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorCaseWholesaleSs || 0, 'USD')}</div>
-                    <div className="text-gray-500">Bottle Wholesale:</div>
-                    <div className="text-right font-medium">{formatCurrency(calculations.distributorBottleWholesaleSs || 0, 'USD')}</div>
-                    <div className="text-gray-500">SRP:</div>
-                    <div className="text-right font-medium text-lg text-blue-700">{formatCurrency(calculations.srpSs || 0, 'USD')}</div>
-                    <div className="text-gray-500">BTG:</div>
-                    <div className="text-right font-medium text-lg text-green-700">{formatCurrency(calculations.distributorBtgPriceSs || 0, 'USD')}</div>
-                  </div>
-                  {formData.roundSrp && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleSs || 0, 'USD')}<br />
-                      Adjusted Bottle Wholesale: {formatCurrency(calculations.adjustedBottleWholesaleSs || 0, 'USD')}
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
+
+          <div className="mt-6">
+            <button
+              className="flex items-center text-sm text-blue-600"
+              onClick={() => setShowGrossProfit(!showGrossProfit)}
+              type="button"
+            >
+              {showGrossProfit ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
+              {showGrossProfit ? 'Hide Gross Profit' : 'Show Gross Profit'}
+            </button>
+          </div>
+
+          {showGrossProfit && (
+            <div className="bg-white p-6 rounded-lg shadow border border-gray-100 mt-2">
+              <h3 className="text-lg font-semibold mb-4 text-gray-800">Gross Profit</h3>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="text-gray-500">Cases Sold:</div>
+                <div className="text-right font-medium">{formData.casesSold || 0}</div>
+                <div className="text-gray-500">Supplier Gross Profit (DI):</div>
+                <div className="text-right font-medium">{formatCurrency(calculations.supplierGrossProfitDi || 0, 'USD')}</div>
+                <div className="text-gray-500">Distributor Gross Profit (DI):</div>
+                <div className="text-right font-medium">{formatCurrency(calculations.distributorGrossProfitDi || 0, 'USD')}</div>
+                <div className="text-gray-500">Supplier Gross Profit (SS):</div>
+                <div className="text-right font-medium">{formatCurrency(calculations.supplierGrossProfitSs || 0, 'USD')}</div>
+                <div className="text-gray-500">Distributor Gross Profit (SS):</div>
+                <div className="text-right font-medium">{formatCurrency(calculations.distributorGrossProfitSs || 0, 'USD')}</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
