@@ -671,7 +671,7 @@ const WinePricingCalculator = () => {
   return (
     <div className="max-w-6xl mx-auto p-4 bg-white rounded-lg shadow-lg">
       <div className="flex flex-col md:flex-row justify-between items-center mb-8">
-        <h1 className="text-2xl font-bold text-gray-800">Wine Pricing Calculator</h1>
+      <h1 className="text-2xl font-bold text-gray-800">My Wine Pricing Tool</h1>
         <div className="flex space-x-4 mt-4 md:mt-0">
           <button
             className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
