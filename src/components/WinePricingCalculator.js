@@ -8,10 +8,10 @@ const CASE_PACK_SIZES = [12, 6, 3, 1];
 const DEFAULT_FORM_DATA = {
   wineName: '',
   currency: 'EUR',
-  exchangeRate: 1.09,
+  exchangeRate: 0, // Start at 0, fetch live rate on load
   exchangeBuffer: 5,
   useCustomExchangeRate: false,
-  customExchangeRate: 1.09,
+  customExchangeRate: 0,
   bottleCost: '',
   casePrice: '',
   casePackSize: 12,
@@ -364,6 +364,103 @@ const WinePricingCalculator = () => {
   const [errors, setErrors] = useState({});
   const [lastEdited, setLastEdited] = useState(null);
 
+  // Fetch exchange rate with reset logic
+  const fetchCurrentExchangeRate = useCallback(async () => {
+    if (formData.currency === 'USD') return; // Skip if USD
+    setIsExchangeRateLoading(true);
+    setExchangeRateError(null);
+    try {
+      const response = await fetch('https://api.exchangerate.host/latest?base=EUR&symbols=USD');
+      if (!response.ok) throw new Error('Failed to fetch exchange rate');
+      const data = await response.json();
+      if (data?.rates?.USD) {
+        const liveRate = parseFloat(data.rates.USD.toFixed(4));
+        setFormData((prev) => ({
+          ...prev,
+          exchangeRate: liveRate,
+          customExchangeRate: liveRate, // Sync custom rate to live rate
+          useCustomExchangeRate: false, // Reset override
+        }));
+      }
+    } catch (error) {
+      setExchangeRateError('Could not fetch exchange rate. Using last known rate.');
+      console.error('Error fetching exchange rate:', error);
+    } finally {
+      setIsExchangeRateLoading(false);
+    }
+  }, [formData.currency]);
+
+  // Initial fetch on mount and currency change
+  useEffect(() => {
+    fetchCurrentExchangeRate();
+  }, [formData.currency, fetchCurrentExchangeRate]);
+
+  // Consolidated input change handler
+  const handleInputChange = useCallback((e) => {
+    const { name, value } = e.target;
+    let newValue = value;
+    let error = '';
+
+    const numericFields = [
+      'exchangeRate',
+      'customExchangeRate',
+      'exchangeBuffer',
+      'diLogistics',
+      'tariff',
+      'statesideLogistics',
+      'casesSold',
+      'bottleCost',
+      'casePrice',
+    ];
+    const marginFields = ['supplierMargin', 'distributorMargin', 'distributorBtgMargin', 'retailerMargin'];
+
+    if (numericFields.includes(name)) {
+      newValue = value === '' ? '' : parseFloat(value) || 0;
+      if ((name === 'bottleCost' || name === 'casePrice') && value !== '' && parseFloat(value) < 0) {
+        error = 'Cost cannot be negative';
+      }
+    } else if (marginFields.includes(name)) {
+      const num = parseFloat(value);
+      if (value !== '' && (num < 0 || num > 100)) error = 'Must be 0-100';
+      newValue = value === '' ? '' : num || 0;
+    } else if (name === 'wineName') {
+      newValue = value;
+    }
+
+    setErrors((prev) => ({ ...prev, [name]: error }));
+    setFormData((prev) => {
+      const newData = { ...prev, [name]: newValue };
+      if (name === 'bottleCost' && value !== '') {
+        newData.casePrice = (parseFloat(value) * prev.casePackSize).toFixed(2) || '';
+        setLastEdited('bottleCost');
+      } else if (name === 'casePrice' && value !== '') {
+        newData.bottleCost = (parseFloat(value) / prev.casePackSize).toFixed(2) || '';
+        setLastEdited('casePrice');
+      }
+      return newData;
+    });
+  }, []);
+
+  const handleCurrencyChange = useCallback((e) => {
+    setFormData((prev) => ({ ...prev, currency: e.target.value }));
+  }, []);
+
+  const handleSelectChange = useCallback((e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => {
+      const newData = { ...prev, [name]: name === 'bottleSize' ? value : parseInt(value, 10) };
+      if (name === 'casePackSize') {
+        const newPackSize = parseInt(value, 10);
+        if (lastEdited === 'bottleCost' && prev.bottleCost !== '') {
+          newData.casePrice = (parseFloat(prev.bottleCost) * newPackSize).toFixed(2) || '';
+        } else if (lastEdited === 'casePrice' && prev.casePrice !== '') {
+          newData.bottleCost = (parseFloat(prev.casePrice) / newPackSize).toFixed(2) || '';
+        }
+      }
+      return newData;
+    });
+  }, [lastEdited]);
+
   // Calculation Logic
   const calculatePricing = useCallback(() => {
     const {
@@ -387,9 +484,8 @@ const WinePricingCalculator = () => {
     } = formData;
 
     let bottleCostUSD, caseCostUSD;
-    const effectiveExchangeRate = currency === 'USD' ? 1 :
-      useCustomExchangeRate ? parseFloat(customExchangeRate) :
-      parseFloat(exchangeRate) * (1 + parseFloat(exchangeBuffer) / 100);
+    const effectiveExchangeRate =
+      currency === 'USD' ? 1 : useCustomExchangeRate ? parseFloat(customExchangeRate) : parseFloat(exchangeRate) * (1 + parseFloat(exchangeBuffer) / 100);
 
     if (bottleCost !== '' && casePrice === '') {
       bottleCostUSD = parseFloat(bottleCost) * effectiveExchangeRate;
@@ -490,82 +586,6 @@ const WinePricingCalculator = () => {
     return () => clearTimeout(timer);
   }, [formData, calculatePricing]);
 
-  useEffect(() => {
-    fetchCurrentExchangeRate();
-  }, []);
-
-  // Handlers
-  const handleInputChange = useCallback((e) => {
-    const { name, value } = e.target;
-    let newValue = value;
-    let error = "";
-
-    if (["supplierMargin", "distributorMargin", "distributorBtgMargin", "retailerMargin"].includes(name)) {
-      const num = parseFloat(value);
-      if (value !== "" && (num < 0 || num > 100)) error = "Must be 0-100";
-      newValue = value === "" ? "" : num || 0;
-    } else if (["bottleCost", "casePrice"].includes(name) && value !== "" && parseFloat(value) < 0) {
-      error = "Cost cannot be negative";
-      newValue = value === "" ? "" : parseFloat(value) || 0;
-    } else if (["exchangeRate", "customExchangeRate", "exchangeBuffer", "diLogistics", "tariff", "statesideLogistics", "casesSold"].includes(name)) {
-      newValue = value === "" ? "" : parseFloat(value) || 0;
-    }
-
-    setErrors((prev) => ({ ...prev, [name]: error }));
-    setFormData((prev) => {
-      const newData = { ...prev, [name]: name === "wineName" ? value : newValue };
-      if (name === "bottleCost" && value !== "") {
-        newData.casePrice = (parseFloat(value) * prev.casePackSize).toFixed(2) || "";
-        setLastEdited('bottleCost');
-      } else if (name === "casePrice" && value !== "") {
-        newData.bottleCost = (parseFloat(value) / prev.casePackSize).toFixed(2) || "";
-        setLastEdited('casePrice');
-      }
-      return newData;
-    });
-  }, []);
-
-  const handleCurrencyChange = useCallback((e) => {
-    setFormData((prev) => ({ ...prev, currency: e.target.value }));
-  }, []);
-
-  const handleSelectChange = useCallback((e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => {
-      const newData = { ...prev, [name]: name === "bottleSize" ? value : parseInt(value, 10) };
-      if (name === "casePackSize") {
-        const newPackSize = parseInt(value, 10);
-        if (lastEdited === 'bottleCost' && prev.bottleCost !== "") {
-          newData.casePrice = (parseFloat(prev.bottleCost) * newPackSize).toFixed(2) || "";
-        } else if (lastEdited === 'casePrice' && prev.casePrice !== "") {
-          newData.bottleCost = (parseFloat(prev.casePrice) / newPackSize).toFixed(2) || "";
-        }
-      }
-      return newData;
-    });
-  }, [lastEdited]);
-
-  const fetchCurrentExchangeRate = async () => {
-    setIsExchangeRateLoading(true);
-    setExchangeRateError(null);
-    try {
-      const response = await fetch('https://api.exchangerate.host/latest?base=EUR&symbols=USD');
-      if (!response.ok) throw new Error("Failed to fetch exchange rate");
-      const data = await response.json();
-      if (data && data.rates && data.rates.USD) {
-        setFormData((prev) => ({
-          ...prev,
-          exchangeRate: parseFloat(data.rates.USD.toFixed(4)),
-        }));
-      }
-    } catch (error) {
-      setExchangeRateError("Could not fetch exchange rate. Using default.");
-      console.error('Error fetching exchange rate:', error);
-    } finally {
-      setIsExchangeRateLoading(false);
-    }
-  };
-
   const formatCurrency = (value, currency = formData.currency, decimals = 2) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value || 0);
 
@@ -624,7 +644,7 @@ const WinePricingCalculator = () => {
       ['Supplier Gross Profit (SS)', calculations.supplierGrossProfitSs ? calculations.supplierGrossProfitSs : '0.00'],
       ['Distributor Gross Profit (SS)', calculations.distributorGrossProfitSs ? calculations.distributorGrossProfitSs : '0.00'],
     ];
-    const csvContent = csvRows.map(row => row.join(',')).join('\n');
+    const csvContent = csvRows.map((row) => row.join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -727,7 +747,8 @@ const WinePricingCalculator = () => {
                 </div>
                 {formData.roundSrp && (
                   <div className="text-xs text-gray-500 mt-1">
-                    Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleDi || 0, 'USD')}<br />
+                    Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleDi || 0, 'USD')}
+                    <br />
                     Adjusted Bottle Wholesale: {formatCurrency(calculations.adjustedBottleWholesaleDi || 0, 'USD')}
                   </div>
                 )}
@@ -762,7 +783,8 @@ const WinePricingCalculator = () => {
                 </div>
                 {formData.roundSrp && (
                   <div className="text-xs text-gray-500 mt-1">
-                    Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleSs || 0, 'USD')}<br />
+                    Adjusted Case Wholesale: {formatCurrency(calculations.adjustedCaseWholesaleSs || 0, 'USD')}
+                    <br />
                     Adjusted Bottle Wholesale: {formatCurrency(calculations.adjustedBottleWholesaleSs || 0, 'USD')}
                   </div>
                 )}
