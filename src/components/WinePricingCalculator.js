@@ -1,178 +1,137 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Save, Download, Printer, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 // --- Constants ---
+const CURRENCIES = ['EUR', 'USD'];
+const BOTTLE_SIZES = ['750ml', '375ml', '500ml', '1L', '1.5L', '3L'];
+const CASE_PACK_SIZES = [12, 6, 3, 1];
+
+// Caching and API Settings
+const CACHE_DURATION_MS = 6 * 60 * 60 * 1000; // 6 hours
+const CACHE_KEY_OER = 'cachedRateEURUSD_OER'; // Unique key for OpenExchangeRates cache
+const CACHE_TIMESTAMP_KEY_OER = 'lastFetchTime_OER'; // Unique key
+const DEFAULT_EXCHANGE_RATE = '1.0750'; // Default EUR to USD rate
+
 const DEFAULT_FORM_DATA = {
-  calculationMode: 'forward', // 'forward' or 'reverse'
+  calculationMode: 'forward',
   wineName: '',
-  currency: 'EUR', // Default to EUR as it requires exchange rate
+  currency: 'EUR',
   bottleCost: '',
   casePrice: '',
   casePackSize: 12,
   bottleSize: '750ml',
-  exchangeRate: 1.10, // Default fallback
-  exchangeBuffer: 5, // Default buffer %
+  exchangeRate: DEFAULT_EXCHANGE_RATE, // Start with default/cache
+  exchangeBuffer: 5,
   useCustomExchangeRate: false,
-  customExchangeRate: '',
-  diLogistics: 13, // USD per case
-  tariff: 0, // Percentage
-  statesideLogistics: 10, // USD per case
-  supplierMargin: 30, // Percentage
-  distributorMargin: 30, // Percentage
-  distributorBtgMargin: 27, // Percentage
-  retailerMargin: 33, // Percentage
-  roundSrp: true, // Default to rounding SRP
-  casesSold: '', // For GP calculation
-  targetSrp: '', // For reverse calculation (USD)
+  customExchangeRate: DEFAULT_EXCHANGE_RATE, // Default custom to default rate
+  diLogistics: 13,
+  tariff: 0,
+  statesideLogistics: 10,
+  supplierMargin: 30,
+  distributorMargin: 30,
+  distributorBtgMargin: 27,
+  retailerMargin: 33,
+  roundSrp: true,
+  casesSold: '',
+  targetSrp: '',
 };
 
-const CACHE_DURATION_MS = 12 * 60 * 60 * 1000; // 12 hours
+const CALCULATION_TIMEOUT = 300;
 
 // --- Helper Functions ---
-
-// Simple currency formatter (adapt as needed for locale/precision)
 const formatCurrency = (value, currency = 'USD', maximumFractionDigits = 2) => {
-  const number = Number(value);
-  if (isNaN(number)) {
-    return '$--.--'; // Or return an empty string or 'N/A'
-  }
-  try {
-    return number.toLocaleString('en-US', {
-      style: 'currency',
-      currency: currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: maximumFractionDigits,
-    });
-  } catch (e) {
-    // Fallback for invalid currency codes if needed, though USD/EUR should be fine
-    return `$${number.toFixed(2)}`;
-  }
+    const number = Number(value);
+    if (isNaN(number)) return '$--.--';
+    try {
+        return number.toLocaleString('en-US', { style: 'currency', currency: currency, minimumFractionDigits: 2, maximumFractionDigits: maximumFractionDigits });
+    } catch (e) { return `$${number.toFixed(2)}`; }
 };
 
-// Function to safely create CSV cells (handles quotes and commas)
 const escapeCsvCell = (cell) => {
-    const stringValue = String(cell ?? ''); // Handle null/undefined
-    // If the string contains a comma, double quote, or newline, wrap it in double quotes
+    const stringValue = String(cell ?? '');
     if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-        // Escape existing double quotes by doubling them
         const escapedString = stringValue.replace(/"/g, '""');
         return `"${escapedString}"`;
     }
-    return stringValue; // Return as is if no special characters
+    return stringValue;
 };
 
+const roundToNearest99 = (value) => {
+    const num = parseFloat(value);
+    if (isNaN(num)) return 0;
+    const whole = Math.floor(num);
+    return num - whole < 0.40 ? Math.max(0, whole - 1 + 0.99) : whole + 0.99;
+};
 
 // --- InputPanel Component ---
-// (Keeping it within the same file for simplicity as it's tightly coupled)
+// (This component's code remains the same as the previous complete version,
+// it correctly uses formData, errors, and handlers passed down as props.
+// No changes needed within InputPanel itself for the API switch.)
 const InputPanel = ({
-  formData,
-  handleInputChange, // Use the main handler passed from parent
-  handleCurrencyChange,
-  handleSelectChange,
-  fetchCurrentExchangeRateWithCache,
-  isExchangeRateLoading,
-  exchangeRateError,
-  showAdvanced,
-  setShowAdvanced,
-  errors
+    formData, setFormData, handleInputChange, handleCurrencyChange, handleSelectChange,
+    handleCustomRateToggle, handleRefreshRate, // Pass new handlers
+    isExchangeRateLoading, exchangeRateError, showAdvanced, setShowAdvanced, errors
 }) => {
 
-  // No longer needed - logic moved to main handleInputChange
-  // const handlePackOrBottleCostChange = (e) => { ... };
+    // Function to get the effective rate for display (no changes needed here)
+    const getEffectiveRate = () => {
+        if (formData.currency === 'USD') return 'N/A';
+        const baseRate = parseFloat(formData.exchangeRate); // This comes from state, which fetchRate updates
+        const buffer = parseFloat(formData.exchangeBuffer) || 0;
+        const customRate = parseFloat(formData.customExchangeRate);
 
-  return (
-    <div className="bg-white p-4 md:p-6 rounded-lg shadow border border-gray-100 print:hidden">
-      <h3 className="text-lg font-semibold mb-4 text-gray-800">Input Parameters</h3>
-      <div className="space-y-4">
+        if (formData.useCustomExchangeRate) {
+            return !isNaN(customRate) ? customRate.toFixed(4) : 'Invalid';
+        } else {
+            // Buffer is applied only if NOT using custom rate
+             return !isNaN(baseRate) ? (baseRate * (1 + buffer / 100)).toFixed(4) : 'Invalid Base';
+        }
+    };
 
-        {/* Wine Name */}
-        <div>
-          <label htmlFor="wineName" className="block text-sm font-medium text-gray-700">Wine Name</label>
-          <input
-            type="text"
-            id="wineName"
-            name="wineName"
-            value={formData.wineName}
-            onChange={handleInputChange} // Use main handler
-            placeholder="Enter wine name (optional)"
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-          />
-        </div>
-
-        {/* Calculation Mode */}
-        <div>
-          <label htmlFor="calculationMode" className="block text-sm font-medium text-gray-700">Calculation Mode</label>
-          <select
-            id="calculationMode"
-            name="calculationMode"
-            value={formData.calculationMode}
-            onChange={handleSelectChange} // Use general select handler
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
-          >
-            <option value="forward">Forward (Cost to SRP)</option>
-            <option value="reverse">Reverse (SRP to Cost)</option>
-          </select>
-        </div>
-
-        {/* Supplier Cost Inputs */}
-        {formData.calculationMode === 'forward' && (
-          <div className="p-3 border rounded-md bg-gray-50">
-             <label className="block text-sm font-medium text-gray-700 mb-1">Supplier Cost ({formData.currency})</label>
-            <div className="grid grid-cols-2 gap-3">
+    return (
+        <div className="bg-white p-4 md:p-6 rounded-lg shadow border border-gray-100 print:hidden">
+            <h3 className="text-lg font-semibold mb-4 text-gray-800">Input Parameters</h3>
+            <div className="space-y-4">
+                {/* Wine Name */}
                 <div>
-                    <label htmlFor="bottleCost" className="block text-xs font-medium text-gray-500">Bottle Cost</label>
-                    <input
-                        type="number"
-                        id="bottleCost"
-                        name="bottleCost"
-                        value={formData.bottleCost}
-                        onChange={handleInputChange} // Use main handler
-                        placeholder="e.g., 5.00"
-                        min="0"
-                        step="0.01"
-                        className={`mt-1 block w-full px-3 py-2 border ${errors.bottleCost ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}
-                    />
+                    <label htmlFor="wineName" className="block text-sm font-medium text-gray-700">Wine Name</label>
+                    <input type="text" id="wineName" name="wineName" value={formData.wineName} onChange={handleInputChange} placeholder="Enter wine name (optional)" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"/>
                 </div>
+                {/* Calculation Mode */}
                 <div>
-                     <label htmlFor="casePrice" className="block text-xs font-medium text-gray-500">Case Price</label>
-                    <input
-                        type="number"
-                        id="casePrice"
-                        name="casePrice"
-                        value={formData.casePrice}
-                        onChange={handleInputChange} // Use main handler
-                        placeholder="e.g., 60.00"
-                        min="0"
-                        step="0.01"
-                         className={`mt-1 block w-full px-3 py-2 border ${errors.casePrice ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}
-                    />
+                    <label htmlFor="calculationMode" className="block text-sm font-medium text-gray-700">Calculation Mode</label>
+                    <select id="calculationMode" name="calculationMode" value={formData.calculationMode} onChange={handleSelectChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white">
+                        <option value="forward">Forward (Cost to SRP)</option>
+                        <option value="reverse">Reverse (SRP to Cost)</option>
+                    </select>
                 </div>
-            </div>
-             {errors.costInput && <p className="mt-1 text-xs text-red-600">{errors.costInput}</p>}
-             {!errors.costInput && <p className="mt-1 text-xs text-gray-500">Enter either bottle or case cost ({formData.currency}).</p>}
-          </div>
-        )}
-
-        {/* Target SRP Input (Reverse Mode) */}
-        {formData.calculationMode === 'reverse' && (
-           <div className="p-3 border rounded-md bg-gray-50">
-             <label htmlFor="targetSrp" className="block text-sm font-medium text-gray-700">Target SRP (USD)</label>
-             <input
-                 type="number"
-                 id="targetSrp"
-                 name="targetSrp"
-                 value={formData.targetSrp}
-                 onChange={handleInputChange} // Use main handler
-                 placeholder="e.g., 19.99"
-                 min="0"
-                 step="0.01"
-                 className={`mt-1 block w-full px-3 py-2 border ${errors.targetSrp ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}
-             />
-             {errors.targetSrp && <p className="mt-1 text-xs text-red-600">{errors.targetSrp}</p>}
-          </div>
-        )}
-
-        {/* Currency Selection */}
+                {/* Supplier Cost Inputs (Forward Mode) */}
+                {formData.calculationMode === 'forward' && (
+                    <div className="p-3 border rounded-md bg-gray-50">
+                         <label className="block text-sm font-medium text-gray-700 mb-1">Supplier Cost ({formData.currency})</label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label htmlFor="bottleCost" className="block text-xs font-medium text-gray-500">Bottle Cost</label>
+                                <input type="number" id="bottleCost" name="bottleCost" value={formData.bottleCost} onChange={handleInputChange} placeholder="e.g., 5.00" min="0" step="0.01" className={`mt-1 block w-full px-3 py-2 border ${errors.bottleCost || errors.costInput ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}/>
+                            </div>
+                            <div>
+                                 <label htmlFor="casePrice" className="block text-xs font-medium text-gray-500">Case Price</label>
+                                <input type="number" id="casePrice" name="casePrice" value={formData.casePrice} onChange={handleInputChange} placeholder="e.g., 60.00" min="0" step="0.01" className={`mt-1 block w-full px-3 py-2 border ${errors.casePrice || errors.costInput ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}/>
+                            </div>
+                        </div>
+                         {errors.costInput && <p className="mt-1 text-xs text-red-600">{errors.costInput}</p>}
+                         {!errors.costInput && <p className="mt-1 text-xs text-gray-500">Enter either bottle or case cost ({formData.currency}).</p>}
+                    </div>
+                )}
+                {/* Target SRP Input (Reverse Mode) */}
+                {formData.calculationMode === 'reverse' && (
+                   <div className="p-3 border rounded-md bg-gray-50">
+                     <label htmlFor="targetSrp" className="block text-sm font-medium text-gray-700">Target SRP (USD)</label>
+                     <input type="number" id="targetSrp" name="targetSrp" value={formData.targetSrp} onChange={handleInputChange} placeholder="e.g., 19.99" min="0" step="0.01" className={`mt-1 block w-full px-3 py-2 border ${errors.targetSrp ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}/>
+                     {errors.targetSrp && <p className="mt-1 text-xs text-red-600">{errors.targetSrp}</p>}
+                  </div>
+                )}
+              {/* Currency Selection */}
         <div>
             <label htmlFor="currency" className="block text-sm font-medium text-gray-700">Supplier Cost Currency</label>
             <select
@@ -181,247 +140,146 @@ const InputPanel = ({
                 value={formData.currency}
                 onChange={handleCurrencyChange}
                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
+                // Disable if in reverse mode? Optional, might prevent confusion.
+                // disabled={formData.calculationMode === 'reverse'}
             >
-                <option value="EUR">EUR</option>
-                <option value="USD">USD</option>
-                {/* Add other currencies if needed */}
+                {/* --- FIX: Use .map over the CURRENCIES constant --- */}
+                {CURRENCIES.map((currencyCode) => (
+                  <option key={currencyCode} value={currencyCode}>
+                    {currencyCode}
+                  </option>
+                ))}
+                {/* --- End Fix --- */}
             </select>
         </div>
-
-        {/* Case Pack & Bottle Size */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="casePackSize" className="block text-sm font-medium text-gray-700">Case Pack</label>
-            <select
-                id="casePackSize"
-                name="casePackSize"
-                value={formData.casePackSize}
-                onChange={handleSelectChange}
-                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
-            >
-                <option value={1}>1</option>
-                <option value={3}>3</option>
-                <option value={6}>6</option>
-                <option value={12}>12</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor="bottleSize" className="block text-sm font-medium text-gray-700">Bottle Size</label>
-             <select
-                id="bottleSize"
-                name="bottleSize"
-                value={formData.bottleSize}
-                onChange={handleSelectChange}
-                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
-            >
-                <option value="375ml">375ml</option>
-                <option value="500ml">500ml</option>
-                <option value="750ml">750ml</option>
-                <option value="1000ml">1000ml (1L)</option>
-                <option value="1500ml">1500ml (Magnum)</option>
-            </select>
-          </div>
-        </div>
-
-        {/* --- Exchange Rate Section (Conditional) --- */}
-        {formData.currency === 'EUR' && (
-          <div className="p-3 border rounded-md bg-gray-50 space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium text-gray-700">Exchange Rate (EUR to USD)</label>
-              <button
-                className="p-1 rounded-full hover:bg-gray-200 text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => fetchCurrentExchangeRateWithCache(true)} // Force refresh on click
-                title="Force refresh exchange rate (Uses API Credit)"
-                disabled={isExchangeRateLoading || formData.useCustomExchangeRate}
-                type="button"
-                aria-label="Refresh Base Exchange Rate"
-              >
-                {isExchangeRateLoading ? <div className="w-3 h-3 border-t-2 border-blue-500 border-solid rounded-full animate-spin"></div> : <RefreshCw className="w-3 h-3"/>}
-              </button>
-            </div>
-
-            {exchangeRateError && <p className="text-xs text-yellow-700 bg-yellow-100 p-1 rounded border border-yellow-200">Error: {exchangeRateError}. Using previous or default.</p>}
-
-            <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-500">Base Rate:</span>
-                <input
-                  type="number"
-                  value={formData.exchangeRate?.toFixed(4) || ''}
-                  readOnly // Make it read-only as it's fetched
-                  className="mt-1 block w-20 px-2 py-1 border border-gray-300 rounded-md shadow-sm bg-gray-100 sm:text-sm text-right"
-                  aria-label="Fetched Exchange Rate"
-                />
-            </div>
-
-             {/* Buffer or Custom Rate Toggle */}
-            <div className="flex items-center space-x-2 mt-2">
-                 <input
-                    id="useCustomExchangeRate"
-                    name="useCustomExchangeRate"
-                    type="checkbox"
-                    checked={formData.useCustomExchangeRate}
-                    onChange={handleInputChange} // Standard checkbox handling
-                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                 />
-                 <label htmlFor="useCustomExchangeRate" className="text-sm text-gray-600">Use Custom Rate</label>
-            </div>
-
-             {/* Conditional Inputs: Buffer or Custom Rate */}
-            {formData.useCustomExchangeRate ? (
-                 <div className="flex items-center space-x-2 mt-1">
-                    <label htmlFor="customExchangeRate" className="text-sm text-gray-500 whitespace-nowrap">Custom Rate:</label>
-                    <input
-                      type="number"
-                      id="customExchangeRate"
-                      name="customExchangeRate"
-                      value={formData.customExchangeRate}
-                      onChange={handleInputChange} // Use main handler
-                      min="0"
-                      step="0.0001"
-                      className={`mt-1 block w-24 px-2 py-1 border ${errors.customExchangeRate ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}
-                      placeholder="e.g., 1.1500"
-                    />
-                     {errors.customExchangeRate && <p className="mt-1 text-xs text-red-600">{errors.customExchangeRate}</p>}
-                  </div>
-            ) : (
-                 <div className="flex items-center space-x-2 mt-1">
-                     <label htmlFor="exchangeBuffer" className="text-sm text-gray-500 whitespace-nowrap">Buffer (%):</label>
-                    <input
-                      type="number"
-                      id="exchangeBuffer"
-                      name="exchangeBuffer"
-                      value={formData.exchangeBuffer}
-                      onChange={handleInputChange} // Use main handler
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      className={`mt-1 block w-20 px-2 py-1 border ${errors.exchangeBuffer ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}
-                      placeholder="e.g., 5"
-                    />
-                     {errors.exchangeBuffer && <p className="mt-1 text-xs text-red-600">{errors.exchangeBuffer}</p>}
-                 </div>
-            )}
-          </div>
-        )}
-
-        {/* --- Advanced Options Toggle --- */}
-         <div className="mt-4">
-             <button
-                 type="button"
-                 onClick={() => setShowAdvanced(!showAdvanced)}
-                 className="flex items-center text-sm text-blue-600 hover:text-blue-800 focus:outline-none"
-             >
-                 {showAdvanced ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
-                 {showAdvanced ? 'Hide Advanced Options' : 'Show Advanced Options'}
-             </button>
-         </div>
-
-         {/* --- Advanced Options Section (Conditional) --- */}
-        {showAdvanced && (
-            <div className="p-3 border rounded-md bg-gray-50 space-y-3 mt-2">
-                 <h4 className="text-sm font-medium text-gray-600 mb-2">Costs & Margins</h4>
-                 {/* DI Logistics */}
-                <div>
-                    <label htmlFor="diLogistics" className="block text-xs font-medium text-gray-500">DI Logistics (USD/Case)</label>
-                    <input
-                        type="number" id="diLogistics" name="diLogistics" value={formData.diLogistics} onChange={handleInputChange}
-                        min="0" step="0.01" placeholder="e.g., 13"
-                        className={`mt-1 block w-full px-3 py-2 border ${errors.diLogistics ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} />
-                         {errors.diLogistics && <p className="mt-1 text-xs text-red-600">{errors.diLogistics}</p>}
-                </div>
-                 {/* Tariff */}
-                <div>
-                     <label htmlFor="tariff" className="block text-xs font-medium text-gray-500">Tariff (%)</label>
-                    <input
-                        type="number" id="tariff" name="tariff" value={formData.tariff} onChange={handleInputChange}
-                        min="0" max="200" step="0.1" placeholder="e.g., 0"
-                        className={`mt-1 block w-full px-3 py-2 border ${errors.tariff ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} />
-                         {errors.tariff && <p className="mt-1 text-xs text-red-600">{errors.tariff}</p>}
-                </div>
-                {/* Stateside Logistics */}
-                <div>
-                     <label htmlFor="statesideLogistics" className="block text-xs font-medium text-gray-500">Stateside Logistics (USD/Case)</label>
-                    <input
-                        type="number" id="statesideLogistics" name="statesideLogistics" value={formData.statesideLogistics} onChange={handleInputChange}
-                        min="0" step="0.01" placeholder="e.g., 10"
-                        className={`mt-1 block w-full px-3 py-2 border ${errors.statesideLogistics ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} />
-                         {errors.statesideLogistics && <p className="mt-1 text-xs text-red-600">{errors.statesideLogistics}</p>}
-                </div>
-                 {/* Margins */}
+                {/* Case Pack & Bottle Size */}
                 <div className="grid grid-cols-2 gap-3">
                     <div>
-                        <label htmlFor="supplierMargin" className="block text-xs font-medium text-gray-500">Supplier Margin (%)</label>
-                        <input
-                            type="number" id="supplierMargin" name="supplierMargin" value={formData.supplierMargin} onChange={handleInputChange}
-                            min="0" max="100" step="0.1" placeholder="e.g., 30"
-                            className={`mt-1 block w-full px-3 py-2 border ${errors.supplierMargin ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} />
-                             {errors.supplierMargin && <p className="mt-1 text-xs text-red-600">{errors.supplierMargin}</p>}
-                    </div>
-                     <div>
-                        <label htmlFor="distributorMargin" className="block text-xs font-medium text-gray-500">Distributor Margin (%)</label>
-                        <input
-                            type="number" id="distributorMargin" name="distributorMargin" value={formData.distributorMargin} onChange={handleInputChange}
-                            min="0" max="100" step="0.1" placeholder="e.g., 30"
-                            className={`mt-1 block w-full px-3 py-2 border ${errors.distributorMargin ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} />
-                             {errors.distributorMargin && <p className="mt-1 text-xs text-red-600">{errors.distributorMargin}</p>}
-                    </div>
-                     <div>
-                        <label htmlFor="distributorBtgMargin" className="block text-xs font-medium text-gray-500">Dist. BTG Margin (%)</label>
-                        <input
-                            type="number" id="distributorBtgMargin" name="distributorBtgMargin" value={formData.distributorBtgMargin} onChange={handleInputChange}
-                            min="0" max="100" step="0.1" placeholder="e.g., 27"
-                            className={`mt-1 block w-full px-3 py-2 border ${errors.distributorBtgMargin ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} />
-                             {errors.distributorBtgMargin && <p className="mt-1 text-xs text-red-600">{errors.distributorBtgMargin}</p>}
+                        <label htmlFor="casePackSize" className="block text-sm font-medium text-gray-700">Case Pack</label>
+                        <select id="casePackSize" name="casePackSize" value={formData.casePackSize} onChange={handleSelectChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white">
+                            {CASE_PACK_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+                        </select>
                     </div>
                     <div>
-                         <label htmlFor="retailerMargin" className="block text-xs font-medium text-gray-500">Retailer Margin (%)</label>
-                        <input
-                            type="number" id="retailerMargin" name="retailerMargin" value={formData.retailerMargin} onChange={handleInputChange}
-                            min="0" max="100" step="0.1" placeholder="e.g., 33"
-                            className={`mt-1 block w-full px-3 py-2 border ${errors.retailerMargin ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} />
-                             {errors.retailerMargin && <p className="mt-1 text-xs text-red-600">{errors.retailerMargin}</p>}
+                        <label htmlFor="bottleSize" className="block text-sm font-medium text-gray-700">Bottle Size</label>
+                        <select id="bottleSize" name="bottleSize" value={formData.bottleSize} onChange={handleSelectChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white">
+                            {BOTTLE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+                        </select>
                     </div>
                 </div>
-                {/* Round SRP Toggle */}
-                <div className="flex items-center space-x-2">
-                     <input
-                        id="roundSrp"
-                        name="roundSrp"
-                        type="checkbox"
-                        checked={formData.roundSrp}
-                        onChange={handleInputChange}
-                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                     />
-                     <label htmlFor="roundSrp" className="text-sm text-gray-600">Round SRP to nearest .99?</label>
-                </div>
-                {/* Cases Sold for GP */}
-                <div>
-                     <label htmlFor="casesSold" className="block text-xs font-medium text-gray-500">Cases Sold (for GP Calc)</label>
-                    <input
-                        type="number" id="casesSold" name="casesSold" value={formData.casesSold} onChange={handleInputChange}
-                        min="0" step="1" placeholder="e.g., 100"
-                        className={`mt-1 block w-full px-3 py-2 border ${errors.casesSold ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} />
-                         {errors.casesSold && <p className="mt-1 text-xs text-red-600">{errors.casesSold}</p>}
-                </div>
+                {/* Exchange Rate Section */}
+                {formData.currency === 'EUR' && (
+                  <div className="p-3 border rounded-md bg-gray-50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-sm font-medium text-gray-700">Exchange Rate (EUR to USD)</label>
+                      {!formData.useCustomExchangeRate && (
+                        <button className="p-1 rounded-full hover:bg-gray-200 text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed" onClick={handleRefreshRate} title="Force refresh exchange rate (Uses API Credit)" disabled={isExchangeRateLoading} type="button" aria-label="Refresh Base Exchange Rate">
+                          {isExchangeRateLoading ? <div className="w-3 h-3 border-t-2 border-blue-500 border-solid rounded-full animate-spin"></div> : <RefreshCw className="w-3 h-3"/>}
+                        </button>
+                      )}
+                    </div>
+                    {exchangeRateError && <p className="text-xs text-yellow-700 bg-yellow-100 p-1 rounded border border-yellow-200 flex items-center"><AlertCircle className="w-3 h-3 mr-1"/>{exchangeRateError}</p>}
+                    <div className="flex items-center space-x-2 pt-1">
+                      <input id="useCustomExchangeRate" name="useCustomExchangeRate" type="checkbox" checked={formData.useCustomExchangeRate} onChange={handleCustomRateToggle} className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"/>
+                      <label htmlFor="useCustomExchangeRate" className="text-sm text-gray-600">Use Manual Rate</label>
+                    </div>
+                    <div className="flex items-center space-x-2 mt-1">
+                      <label htmlFor="exchangeRateInput" className="text-sm text-gray-500 w-24 whitespace-nowrap">
+                        {formData.useCustomExchangeRate ? "Manual Rate:" : "Fetched Rate:"}
+                      </label>
+                      <input
+                        type="number" id="exchangeRateInput"
+                        name={formData.useCustomExchangeRate ? "customExchangeRate" : "exchangeRate"}
+                        value={formData.useCustomExchangeRate ? formData.customExchangeRate : formData.exchangeRate} // Show correct value based on toggle
+                        onChange={handleInputChange} min="0" step="0.0001"
+                        className={`block w-28 px-2 py-1 border ${errors.exchangeRate || errors.customExchangeRate ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`}
+                        placeholder="e.g., 1.0750"
+                        disabled={!formData.useCustomExchangeRate} // Enable only if custom is checked
+                        aria-label={formData.useCustomExchangeRate ? "Custom Exchange Rate" : "Fetched Exchange Rate"}
+                      />
+                       {errors.exchangeRate && !formData.useCustomExchangeRate && <p className="mt-1 text-xs text-red-600">{errors.exchangeRate}</p>}
+                       {errors.customExchangeRate && formData.useCustomExchangeRate && <p className="mt-1 text-xs text-red-600">{errors.customExchangeRate}</p>}
+                    </div>
+                    {/* Buffer Input - No changes needed here */}
+                    <div className="flex items-center space-x-2 mt-1">
+                      <label htmlFor="exchangeBuffer" className="text-sm text-gray-500 w-24 whitespace-nowrap">Rate Buffer (%):</label>
+                      <input type="number" id="exchangeBuffer" name="exchangeBuffer" value={formData.exchangeBuffer} onChange={handleInputChange} min="0" max="100" step="0.1" className={`block w-20 px-2 py-1 border ${errors.exchangeBuffer ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} placeholder="e.g., 5" aria-label="Exchange Rate Buffer"/>
+                       {errors.exchangeBuffer && <p className="mt-1 text-xs text-red-600">{errors.exchangeBuffer}</p>}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                        Effective Rate: {getEffectiveRate()} ( {formData.useCustomExchangeRate ? 'Manual' : `Workspaceed ${formData.exchangeRate} + ${formData.exchangeBuffer || 0}% buffer`})
+                    </div>
+                  </div>
+                )}
+                {/* Advanced Options Toggle - No changes needed */}
+                 <div className="mt-4">
+                     <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center text-sm text-blue-600 hover:text-blue-800 focus:outline-none">
+                         {showAdvanced ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />} {showAdvanced ? 'Hide Advanced Options' : 'Show Advanced Options'}
+                     </button>
+                 </div>
+                {/* Advanced Options Inputs - No changes needed */}
+                {showAdvanced && (
+                    <div className="p-3 border rounded-md bg-gray-50 space-y-3 mt-2">
+                        <h4 className="text-sm font-medium text-gray-600 mb-2">Costs & Margins</h4>
+                        <div>
+                            <label htmlFor="diLogistics" className="block text-xs font-medium text-gray-500">DI Logistics (USD/Case)</label>
+                            <input type="number" id="diLogistics" name="diLogistics" value={formData.diLogistics} onChange={handleInputChange} min="0" step="0.01" placeholder="e.g., 13" className={`mt-1 block w-full px-3 py-2 border ${errors.diLogistics ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} /> {errors.diLogistics && <p className="mt-1 text-xs text-red-600">{errors.diLogistics}</p>}
+                        </div>
+                        <div>
+                            <label htmlFor="tariff" className="block text-xs font-medium text-gray-500">Tariff (%)</label>
+                            <input type="number" id="tariff" name="tariff" value={formData.tariff} onChange={handleInputChange} min="0" max="200" step="0.1" placeholder="e.g., 0" className={`mt-1 block w-full px-3 py-2 border ${errors.tariff ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} /> {errors.tariff && <p className="mt-1 text-xs text-red-600">{errors.tariff}</p>}
+                        </div>
+                        <div>
+                            <label htmlFor="statesideLogistics" className="block text-xs font-medium text-gray-500">Stateside Logistics (USD/Case)</label>
+                            <input type="number" id="statesideLogistics" name="statesideLogistics" value={formData.statesideLogistics} onChange={handleInputChange} min="0" step="0.01" placeholder="e.g., 10" className={`mt-1 block w-full px-3 py-2 border ${errors.statesideLogistics ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} /> {errors.statesideLogistics && <p className="mt-1 text-xs text-red-600">{errors.statesideLogistics}</p>}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label htmlFor="supplierMargin" className="block text-xs font-medium text-gray-500">Supplier Margin (%)</label>
+                                <input type="number" id="supplierMargin" name="supplierMargin" value={formData.supplierMargin} onChange={handleInputChange} min="0" max="100" step="0.1" placeholder="e.g., 30" className={`mt-1 block w-full px-3 py-2 border ${errors.supplierMargin ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} /> {errors.supplierMargin && <p className="mt-1 text-xs text-red-600">{errors.supplierMargin}</p>}
+                            </div>
+                            <div>
+                                <label htmlFor="distributorMargin" className="block text-xs font-medium text-gray-500">Distributor Margin (%)</label>
+                                <input type="number" id="distributorMargin" name="distributorMargin" value={formData.distributorMargin} onChange={handleInputChange} min="0" max="100" step="0.1" placeholder="e.g., 30" className={`mt-1 block w-full px-3 py-2 border ${errors.distributorMargin ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} /> {errors.distributorMargin && <p className="mt-1 text-xs text-red-600">{errors.distributorMargin}</p>}
+                            </div>
+                            <div>
+                                <label htmlFor="distributorBtgMargin" className="block text-xs font-medium text-gray-500">Dist. BTG Margin (%)</label>
+                                <input type="number" id="distributorBtgMargin" name="distributorBtgMargin" value={formData.distributorBtgMargin} onChange={handleInputChange} min="0" max="100" step="0.1" placeholder="e.g., 27" className={`mt-1 block w-full px-3 py-2 border ${errors.distributorBtgMargin ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} /> {errors.distributorBtgMargin && <p className="mt-1 text-xs text-red-600">{errors.distributorBtgMargin}</p>}
+                            </div>
+                            <div>
+                                <label htmlFor="retailerMargin" className="block text-xs font-medium text-gray-500">Retailer Margin (%)</label>
+                                <input type="number" id="retailerMargin" name="retailerMargin" value={formData.retailerMargin} onChange={handleInputChange} min="0" max="100" step="0.1" placeholder="e.g., 33" className={`mt-1 block w-full px-3 py-2 border ${errors.retailerMargin ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} /> {errors.retailerMargin && <p className="mt-1 text-xs text-red-600">{errors.retailerMargin}</p>}
+                            </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <input id="roundSrp" name="roundSrp" type="checkbox" checked={formData.roundSrp} onChange={handleInputChange} className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"/>
+                            <label htmlFor="roundSrp" className="text-sm text-gray-600">Round SRP to nearest .99?</label>
+                        </div>
+                        <div>
+                            <label htmlFor="casesSold" className="block text-xs font-medium text-gray-500">Cases Sold (for GP Calc)</label>
+                            <input type="number" id="casesSold" name="casesSold" value={formData.casesSold} onChange={handleInputChange} min="0" step="1" placeholder="e.g., 100" className={`mt-1 block w-full px-3 py-2 border ${errors.casesSold ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} /> {errors.casesSold && <p className="mt-1 text-xs text-red-600">{errors.casesSold}</p>}
+                        </div>
+                    </div>
+                )}
             </div>
-        )}
-      </div>
-    </div>
-  );
+        </div>
+    );
 };
+
 
 // --- Main Calculator Component ---
 const WinePricingCalculator = () => {
+  // State Initialization
   const [formData, setFormData] = useState(() => {
-        // Initialize with defaults, but try to get cached rate if available
-        const cachedRate = localStorage.getItem('cachedRateEURUSD');
-        const rate = cachedRate ? parseFloat(cachedRate) : DEFAULT_FORM_DATA.exchangeRate;
-        return {
-            ...DEFAULT_FORM_DATA,
-            exchangeRate: rate,
-            customExchangeRate: rate, // Default custom rate to cached/default rate
-        };
-    });
+    // Use OER specific cache keys
+    const cachedRate = localStorage.getItem(CACHE_KEY_OER);
+    const rate = cachedRate ? parseFloat(cachedRate).toFixed(5) : DEFAULT_EXCHANGE_RATE;
+    return {
+      ...DEFAULT_FORM_DATA,
+      exchangeRate: rate,
+      customExchangeRate: rate,
+    };
+  });
   const [calculations, setCalculations] = useState({});
   const [errors, setErrors] = useState({});
   const [isCalculating, setIsCalculating] = useState(false);
@@ -430,150 +288,121 @@ const WinePricingCalculator = () => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showGrossProfit, setShowGrossProfit] = useState(false);
 
-  // --- API Key Access ---
-  // Ensure your API key is in a .env file at the root of your project:
-  // REACT_APP_EXCHANGE_RATE_API_KEY=your_actual_api_key
-  const apiKey = process.env.REACT_APP_EXCHANGE_RATE_API_KEY;
+  // --- API Key (Using OpenExchangeRates App ID) ---
+  const oerAppId = process.env.REACT_APP_OER_APP_ID;
+  console.log('>>> Loaded App ID:', oerAppId); // <-- ADD THIS LINE
 
-  // --- Exchange Rate Fetching with Cache ---
-  const fetchCurrentExchangeRateWithCache = useCallback(async (forceRefresh = false) => {
-    // Don't fetch if currency is USD
-     if (formData.currency !== 'EUR') {
-         setExchangeRateError(null); // Clear error if currency changed away from EUR
-         return;
-     }
-    // Don't fetch if using custom rate unless force refreshing the BASE rate
-    // (Force refresh should update the base even if custom is selected)
-    // if (formData.useCustomExchangeRate && !forceRefresh) {
-    //      setExchangeRateError(null); // Clear error if switching to custom
-    //     return;
-    // }
+// --- Fetching Logic (Open Exchange Rates - Adapted for Free Plan / USD Base) ---
+const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
+    console.log(`>>> fetchRateFromOER called. Force: ${forceRefresh}, Currency: ${formData.currency}, Custom: ${formData.useCustomExchangeRate}`);
 
-    const now = Date.now();
-    const lastFetchTimeString = localStorage.getItem('lastFetchTime');
-    const lastFetchTime = lastFetchTimeString ? parseInt(lastFetchTimeString, 10) : 0;
-    const cachedRateString = localStorage.getItem('cachedRateEURUSD');
-
-    // Use cache if available and not expired, unless forceRefresh is true
-    if (!forceRefresh && cachedRateString && now - lastFetchTime < CACHE_DURATION_MS) {
-      console.log("Using cached exchange rate.");
-      const cachedRate = parseFloat(cachedRateString);
-       if (!isNaN(cachedRate)) {
-           // Update state if the cached rate differs from the current state rate
-           if (cachedRate !== formData.exchangeRate) {
-               setFormData(prev => ({ ...prev, exchangeRate: cachedRate }));
-           }
-           setExchangeRateError(null); // Clear any previous error
-           return; // Exit early
-       } else {
-           console.warn("Invalid cached rate found.");
-       }
+    // Skip conditions remain the same
+    if (formData.currency !== 'EUR' || (formData.useCustomExchangeRate && !forceRefresh)) {
+      console.log(">>> SKIPPING OER fetch: Conditions not met.");
+      setExchangeRateError(null);
+      return;
     }
 
-    // Proceed to fetch if no cache, cache expired, or forceRefresh
+    const now = Date.now();
+    const lastFetchTimeString = localStorage.getItem(CACHE_TIMESTAMP_KEY_OER);
+    const lastFetchTime = lastFetchTimeString ? parseInt(lastFetchTimeString, 10) : 0;
+    const cachedRateString = localStorage.getItem(CACHE_KEY_OER);
+
+    // Cache check remains the same
+    if (!forceRefresh && cachedRateString && now - lastFetchTime < CACHE_DURATION_MS) {
+      const cachedRate = parseFloat(cachedRateString);
+      if (!isNaN(cachedRate) && cachedRate > 0) {
+        console.log(">>> Using cached OER rate:", cachedRate);
+        setFormData(prev => ({ ...prev, exchangeRate: cachedRateString }));
+        setExchangeRateError(null);
+        return;
+      }
+    }
+
+    console.log(">>> PROCEEDING TO FETCH from OpenExchangeRates (USD Base)...");
     setIsExchangeRateLoading(true);
     setExchangeRateError(null);
-    console.log("Fetching fresh exchange rate...");
 
-    if (!apiKey) {
-        setExchangeRateError("API Key missing. Please configure .env file.");
-        setIsExchangeRateLoading(false);
-         console.error("API Key (REACT_APP_EXCHANGE_RATE_API_KEY) is not defined.");
-         // Use default/previous rate as fallback
-         const fallbackRate = cachedRateString ? parseFloat(cachedRateString) : DEFAULT_FORM_DATA.exchangeRate;
-         setFormData(prev => ({
-              ...prev,
-              exchangeRate: fallbackRate
-          }));
-        return;
+    if (!oerAppId) {
+      console.error("OpenExchangeRates App ID is missing.");
+      setExchangeRateError("Config Error: App ID missing.");
+      setIsExchangeRateLoading(false);
+      const fallbackRate = cachedRateString ? parseFloat(cachedRateString).toFixed(5) : DEFAULT_EXCHANGE_RATE;
+      setFormData(prev => ({ ...prev, exchangeRate: fallbackRate }));
+      return;
     }
 
     try {
-      // Use the /live endpoint which requires 'access_key' and optionally 'source' and 'currencies'
-      // NOTE: The free plan on exchangerate.host might NOT support 'source' or 'currencies' filtering.
-      // It might always return EUR as base if your account is set to EUR.
-      // Fetching all rates (default) and extracting EURUSD might be necessary.
-      // const response = await fetch(`https://api.exchangerate.host/live?access_key=${apiKey}&source=EUR&currencies=USD`);
-      const response = await fetch(`https://api.exchangerate.host/live?access_key=${apiKey}`); // Fetch default base (likely EUR)
+      // --- FIX: Fetch latest rates (base USD is default) asking ONLY for EUR ---
+      const apiUrl = `https://openexchangerates.org/api/latest.json?app_id=${oerAppId}&symbols=EUR`;
+      console.log(">>> Fetching URL:", apiUrl);
 
-      // Check if the response is ok (status in the range 200-299)
-      if (!response.ok) {
-           let errorMsg = `HTTP error! status: ${response.status}`;
-           try {
-               const errorData = await response.json();
-               errorMsg += ` - ${errorData?.error?.info || response.statusText}`;
-           } catch (e) { /* Ignore if response body is not JSON */ }
-           throw new Error(errorMsg);
-       }
-
+      const response = await fetch(apiUrl);
       const data = await response.json();
+      console.log(">>> RAW OER RESPONSE (USD Base):", JSON.stringify(data, null, 2));
 
-      // Validate the response structure for /live endpoint
-      // Adapt based on whether 'source'/'currencies' is supported or if you need to find USD rate from default EUR base
-       if (data && data.success && data.quotes && data.quotes.USD !== undefined && data.base === 'EUR') {
-          // If base is EUR and USD quote exists
-          const rate = data.quotes.USD;
-          console.log("Fetched Rate EUR to USD:", rate);
-
-          // Update state and localStorage
-          setFormData(prev => ({
-              ...prev,
-              exchangeRate: rate,
-              // Also update custom rate if user wasn't actively using it, to keep it fresh
-               customExchangeRate: prev.useCustomExchangeRate ? prev.customExchangeRate : rate
-          }));
-          localStorage.setItem('cachedRateEURUSD', rate.toString());
-          localStorage.setItem('lastFetchTime', now.toString());
-          setExchangeRateError(null); // Clear error on success
-
-       } else if (data && data.success && data.quotes && data.quotes.EURUSD !== undefined) {
-          // If API provided EURUSD directly (e.g., maybe base was USD or source/currency worked)
-          const rate = data.quotes.EURUSD;
-          console.log("Fetched Rate EUR to USD:", rate);
-          setFormData(prev => ({
-              ...prev,
-              exchangeRate: rate,
-              customExchangeRate: prev.useCustomExchangeRate ? prev.customExchangeRate : rate
-          }));
-          localStorage.setItem('cachedRateEURUSD', rate.toString());
-          localStorage.setItem('lastFetchTime', now.toString());
-          setExchangeRateError(null);
-
-      } else {
-           console.error("Invalid data structure received from API or EUR/USD quote missing:", data);
-           // Provide more specific feedback based on API error if available
-           const apiErrorInfo = data?.error?.info || 'Unexpected response format or missing quote.';
-           throw new Error(`Could not parse rate: ${apiErrorInfo}`);
+      if (!response.ok || data.error) {
+         const errorDescription = data?.description || `HTTP error! status: ${response.status}`;
+         throw new Error(errorDescription);
       }
+
+      // --- FIX: Parse USD->EUR rate and calculate EUR->USD rate ---
+      // Ensure base is USD and EUR rate exists
+      if (data.base !== 'USD' || !data.rates || typeof data.rates.EUR !== 'number') {
+         throw new Error("Could not parse valid USD->EUR rate from OER API. Unexpected response format.");
+      }
+
+      const rateUSDtoEUR = data.rates.EUR;
+      if (rateUSDtoEUR <= 0) {
+        throw new Error("Received invalid rate (<= 0) from OER API.");
+      }
+
+      // Calculate the needed EUR -> USD rate
+      const rateEURUSD = 1 / rateUSDtoEUR;
+      const formattedRate = rateEURUSD.toFixed(5); // Store with sufficient precision
+      // --- End Rate Calculation Fix ---
+
+      console.log(`>>> Fetched OER Rate: USD->EUR=${rateUSDtoEUR}, Calculated EUR->USD=${formattedRate}`);
+
+      // Update state and cache
+      setFormData(prev => ({
+        ...prev,
+        exchangeRate: formattedRate, // Store the calculated EUR->USD rate
+        customExchangeRate: prev.useCustomExchangeRate ? prev.customExchangeRate : formattedRate
+      }));
+      localStorage.setItem(CACHE_KEY_OER, formattedRate);
+      localStorage.setItem(CACHE_TIMESTAMP_KEY_OER, now.toString());
+      setExchangeRateError(null); // Clear errors on success
+
     } catch (error) {
-      console.error("Error fetching exchange rate:", error);
-      setExchangeRateError(`Could not fetch rate: ${error.message}. Using previous or default.`);
-      // Use cached rate as fallback if available, otherwise default
-       const fallbackRate = cachedRateString ? parseFloat(cachedRateString) : DEFAULT_FORM_DATA.exchangeRate;
-       setFormData(prev => ({ ...prev, exchangeRate: fallbackRate }));
+      console.error("Error fetching/processing OER rate:", error);
+      setExchangeRateError(`Could not fetch rate: ${error.message}. Using previous/default.`);
+      // Fallback logic remains the same
+      const fallbackRate = cachedRateString ? parseFloat(cachedRateString).toFixed(5) : DEFAULT_EXCHANGE_RATE;
+      setFormData(prev => ({ ...prev, exchangeRate: fallbackRate }));
     } finally {
       setIsExchangeRateLoading(false);
     }
-  }, [apiKey, formData.currency, formData.exchangeRate]); // Added formData.exchangeRate dependency to handle cache update
+    // Updated dependency array from previous step
+  }, [oerAppId, formData.currency, formData.useCustomExchangeRate]);
 
-
-  // --- Calculation Logic ---
+  // --- Calculation Logic (Unchanged - uses formData.exchangeRate which is updated by fetch) ---
   const calculatePricing = useCallback(() => {
     console.log("Calculating pricing with formData:", formData);
     setIsCalculating(true);
-    // Clear calculation errors, keep input errors
-    setErrors(prev => ({
-      ...prev,
-      calculation: null, // Clear specific calculation errors
-      costInput: null,    // Clear combined cost error
-      targetSrp: formData.calculationMode === 'reverse' && !parseFloat(formData.targetSrp) ? prev.targetSrp : null, // Keep targetSrp error if relevant
+    setErrors(prev => ({ // Clear only calculation-related errors
+       calculation: null,
+       costInput: prev.calculationMode === 'forward' && (!parseFloat(prev.bottleCost) && !parseFloat(prev.casePrice)) ? prev.costInput : null,
+       targetSrp: prev.calculationMode === 'reverse' && !parseFloat(prev.targetSrp) ? prev.targetSrp : null,
+       exchangeRate: prev.currency === 'EUR' && !prev.useCustomExchangeRate && (isNaN(parseFloat(prev.exchangeRate)) || parseFloat(prev.exchangeRate) <= 0) ? prev.exchangeRate : null,
+       customExchangeRate: prev.currency === 'EUR' && prev.useCustomExchangeRate && (isNaN(parseFloat(prev.customExchangeRate)) || parseFloat(prev.customExchangeRate) <= 0) ? prev.customExchangeRate : null,
     }));
 
     // --- Input Parsing and Validation ---
     const bottleCost = parseFloat(formData.bottleCost) || 0;
     const casePrice = parseFloat(formData.casePrice) || 0;
     const casePack = parseInt(formData.casePackSize, 10) || 12;
-    const exchangeBuffer = parseFloat(formData.exchangeBuffer) || 0;
+    const exchangeBuffer = parseFloat(formData.exchangeBuffer) || 0; // Used only if not custom rate
     const diLogistics = parseFloat(formData.diLogistics) || 0;
     const tariffPercent = parseFloat(formData.tariff) || 0;
     const statesideLogistics = parseFloat(formData.statesideLogistics) || 0;
@@ -584,844 +413,640 @@ const WinePricingCalculator = () => {
     const casesSold = parseInt(formData.casesSold, 10) || 0;
     const targetSrp = parseFloat(formData.targetSrp) || 0;
     const customRate = parseFloat(formData.customExchangeRate);
-    const fetchedRate = parseFloat(formData.exchangeRate);
+    const fetchedRate = parseFloat(formData.exchangeRate); // Holds the latest fetched rate
 
     let effectiveExchangeRate;
     if (formData.currency === 'USD') {
       effectiveExchangeRate = 1; // 1:1 conversion
-    } else if (formData.useCustomExchangeRate && !isNaN(customRate) && customRate > 0) {
-        effectiveExchangeRate = customRate;
-    } else if (!isNaN(fetchedRate) && fetchedRate > 0) {
-        effectiveExchangeRate = fetchedRate * (1 + exchangeBuffer / 100);
-    } else {
-        // Fallback if fetched rate is somehow invalid and not using custom
-        effectiveExchangeRate = DEFAULT_FORM_DATA.exchangeRate * (1 + (formData.exchangeBuffer || 0) / 100);
-        setErrors(prev => ({ ...prev, calculation: "Valid exchange rate unavailable. Using default/fallback." }));
+    } else if (formData.useCustomExchangeRate) {
+        if (!isNaN(customRate) && customRate > 0) {
+            effectiveExchangeRate = customRate; // Use custom rate value directly
+        } else {
+             setErrors(prev => ({ ...prev, customExchangeRate: "Invalid Manual Rate" }));
+             effectiveExchangeRate = parseFloat(DEFAULT_EXCHANGE_RATE); // Fallback
+        }
+    } else { // Using fetched rate
+        if (!isNaN(fetchedRate) && fetchedRate > 0) {
+            // Apply buffer ONLY if NOT using custom rate
+            effectiveExchangeRate = fetchedRate * (1 + exchangeBuffer / 100);
+        } else {
+            setErrors(prev => ({ ...prev, exchangeRate: "Invalid Fetched Rate" }));
+            // Fallback if fetched rate is somehow invalid
+            effectiveExchangeRate = parseFloat(DEFAULT_EXCHANGE_RATE) * (1 + (formData.exchangeBuffer || 0) / 100);
+        }
     }
+
+     // Final check on effective rate before proceeding
+     if (isNaN(effectiveExchangeRate) || effectiveExchangeRate <= 0) {
+          setErrors(prev => ({ ...prev, calculation: "Invalid effective exchange rate for calculation." }));
+          setIsCalculating(false);
+          setCalculations({});
+          return;
+     }
 
     let baseBottleCostOriginal = null; // Supplier cost in original currency (for reverse calc)
     let baseCasePriceOriginal = null; // Supplier cost in original currency (for reverse calc)
     let caseCostUSD = 0; // This will be our starting point in USD
 
     // --- Determine Base Cost in USD ---
-    if (formData.calculationMode === 'forward') {
-      let baseCostOriginal = 0;
-      if (bottleCost > 0 && casePrice > 0) {
-           // Prioritize bottle cost if both are entered? Or use which was entered last? Let's use bottle cost.
-           console.warn("Both bottle and case cost entered, using bottle cost.");
-           baseCostOriginal = bottleCost * casePack;
-      } else if (bottleCost > 0) {
-        baseCostOriginal = bottleCost * casePack;
-      } else if (casePrice > 0) {
-        baseCostOriginal = casePrice;
-      } else {
-        // Only set error if calculation attempted (not on initial load)
-        if (formData.bottleCost !== '' || formData.casePrice !== '') { // Check if user actually interacted
-             setErrors(prev => ({ ...prev, costInput: `Enter valid ${formData.currency} Bottle Cost or Case Price.` }));
-        }
-        setIsCalculating(false);
-        setCalculations({});
-        return;
-      }
-      caseCostUSD = baseCostOriginal * effectiveExchangeRate;
-      baseCasePriceOriginal = baseCostOriginal; // Store for potential display consistency
-      baseBottleCostOriginal = baseCostOriginal / casePack;
-
-    } else { // Reverse Mode
-      if (targetSrp <= 0) {
-        // Only set error if calculation attempted
-         if (formData.targetSrp !== '') {
-             setErrors(prev => ({ ...prev, targetSrp: "Enter valid Target SRP (USD)." }));
-         }
-        setIsCalculating(false);
-        setCalculations({});
-        return;
-      }
-
-      // Work backwards from SRP (USD) to find the equivalent Base Case Cost (USD)
-      let distWholesaleBottleSS_USD;
-      const retailerMarginFrac = retailerMarginPercent / 100;
-      const distributorMarginFrac = distributorMarginPercent / 100;
-      const supplierMarginFrac = supplierMarginPercent / 100;
-      const tariffFrac = tariffPercent / 100;
-
-      // Check for invalid margins that would cause division by zero or negative results
-      if (retailerMarginFrac >= 1 || distributorMarginFrac >= 1 || supplierMarginFrac >= 1) {
-          setErrors(prev => ({ ...prev, calculation: "Invalid margin(s) >= 100%. Cannot calculate." }));
-          setIsCalculating(false);
-          setCalculations({});
-          return;
-      }
-
-
-      if (formData.roundSrp) {
-          const roundedSrp = Math.floor(targetSrp) + 0.99;
-           distWholesaleBottleSS_USD = roundedSrp * (1 - retailerMarginFrac);
-      } else {
-           distWholesaleBottleSS_USD = targetSrp * (1 - retailerMarginFrac);
-      }
-
-       const distCaseWholesaleSS_USD = distWholesaleBottleSS_USD * casePack;
-       const distLaidInCostSS_USD = distCaseWholesaleSS_USD * (1 - distributorMarginFrac);
-       const supplierFobSS_USD = distLaidInCostSS_USD - statesideLogistics;
-
-       // Handle potential negative FOB if logistics > derived wholesale cost
-        if (supplierFobSS_USD <= 0) {
-            setErrors(prev => ({ ...prev, calculation: "Target SRP too low for specified logistics/margins (Negative FOB)." }));
-            setIsCalculating(false);
-            setCalculations({});
-            return;
-        }
-
-       const supplierLaidInCostSS_USD = supplierFobSS_USD * (1 - supplierMarginFrac); // Cost before SS logistics added
-       const supplierLaidInCostDI_USD = supplierLaidInCostSS_USD; // Supplier DI cost is same before DI logistics
-
-       // Cost = LaidIn/(1+T%) -> caseCostUSD * (1 + tariffFrac) + diLogistics = supplierLaidInCostDI_USD
-       caseCostUSD = (supplierLaidInCostDI_USD - diLogistics) / (1 + tariffFrac);
-
-        // Validate calculated base cost
-       if (caseCostUSD <= 0 || !isFinite(caseCostUSD)) {
-           setErrors(prev => ({ ...prev, calculation: "Cannot derive a valid supplier cost. Check margins/SRP/costs." }));
+    try { // Wrap core calculation in try-catch
+      if (formData.calculationMode === 'forward') {
+        let baseCostOriginal = 0;
+        if (bottleCost > 0) {
+          baseCostOriginal = bottleCost * casePack;
+        } else if (casePrice > 0) {
+          baseCostOriginal = casePrice;
+        } else {
+          if (formData.bottleCost !== '' || formData.casePrice !== '') { // Only error if user tried to input something non-zero
+               setErrors(prev => ({ ...prev, costInput: `Enter valid ${formData.currency} Bottle Cost or Case Price.` }));
+           }
+           // Stop calculation if no valid cost input
            setIsCalculating(false);
            setCalculations({});
            return;
-       }
-
-       // Convert Base Case Cost (USD) back to original currency
-        if (effectiveExchangeRate <= 0) {
-             setErrors(prev => ({ ...prev, calculation: "Invalid effective exchange rate (<=0). Cannot derive original cost." }));
-             setIsCalculating(false);
-             setCalculations({});
-             return;
         }
-       baseCasePriceOriginal = caseCostUSD / effectiveExchangeRate;
-       baseBottleCostOriginal = baseCasePriceOriginal / casePack;
-    }
+        // Ensure cost is positive before conversion
+        if(baseCostOriginal <= 0) throw new Error(`Invalid non-positive ${formData.currency} cost input.`);
 
+        caseCostUSD = baseCostOriginal * effectiveExchangeRate; // Convert to USD
+        baseCasePriceOriginal = baseCostOriginal;
+        baseBottleCostOriginal = baseCostOriginal / casePack;
 
-    // Validate Margins (prevent division by zero or negative margins) during forward calculation
-    const marginCheck = (margin, name) => {
-        if (isNaN(margin) || margin >= 100 || margin < 0) {
-             console.error(`Invalid ${name}: ${margin}`);
-            throw new Error(`Invalid ${name} (${margin}%). Must be between 0 and 99.99.`);
+      } else { // Reverse Mode
+        if (targetSrp <= 0) {
+           if (formData.targetSrp !== '') { setErrors(prev => ({ ...prev, targetSrp: "Enter valid Target SRP (USD > 0)." })); }
+           setIsCalculating(false); setCalculations({}); return;
         }
-        return margin / 100;
-    };
 
-    let tariffAmountUSD, supplierLaidInCostDI_USD, supplierFobDI_USD, distributorLaidInCostDI_USD;
-    let distCaseWholesaleDI_USD, distBottleWholesaleDI_USD, distBtgPriceDI_USD, srpDi_USD;
-    let supplierLaidInCostSS_USD, supplierFobSS_USD, distributorLaidInCostSS_USD;
-    let distCaseWholesaleSS_USD, distBottleWholesaleSS_USD, distBtgPriceSS_USD, srpSs_USD;
-    let originalDistCaseWholesaleDI_USD = null;
-    let originalDistBottleWholesaleDI_USD = null;
-    let originalDistCaseWholesaleSS_USD = null;
-    let originalDistBottleWholesaleSS_USD = null;
+        // Check Margins Immediately
+        const marginCheck = (margin, name) => {
+            if (isNaN(margin) || margin < 0 || margin >= 100) throw new Error(`Invalid ${name} (${margin}%). Must be 0-99.99.`);
+            return margin / 100;
+        };
+        const retailerMarginFrac = marginCheck(retailerMarginPercent, "Retailer Margin");
+        const distributorMarginFrac = marginCheck(distributorMarginPercent, "Distributor Margin");
+        const supplierMarginFrac = marginCheck(supplierMarginPercent, "Supplier Margin");
+        const tariffFrac = tariffPercent / 100;
+        if (isNaN(tariffFrac) || tariffFrac < 0) throw new Error("Invalid Tariff percentage.");
 
-    try {
+        // Calculate backwards
+        let distWholesaleBottleSS_USD;
+        const effectiveSrp = formData.roundSrp ? roundToNearest99(targetSrp) : targetSrp;
+        distWholesaleBottleSS_USD = effectiveSrp * (1 - retailerMarginFrac);
+        if (isNaN(distWholesaleBottleSS_USD) || distWholesaleBottleSS_USD <= 0) throw new Error("Retailer margin yields non-positive wholesale cost.");
+
+        const distCaseWholesaleSS_USD = distWholesaleBottleSS_USD * casePack;
+        const distLaidInCostSS_USD = distCaseWholesaleSS_USD * (1 - distributorMarginFrac);
+        if (isNaN(distLaidInCostSS_USD) || distLaidInCostSS_USD <= 0) throw new Error("Distributor margin yields non-positive laid-in cost.");
+
+        const supplierFobSS_USD = distLaidInCostSS_USD - statesideLogistics;
+        if (isNaN(supplierFobSS_USD) || supplierFobSS_USD <= 0) throw new Error("Stateside logistics cost exceeds distributor laid-in cost.");
+
+        const supplierLaidInCostSS_USD = supplierFobSS_USD * (1 - supplierMarginFrac);
+        if (isNaN(supplierLaidInCostSS_USD) || supplierLaidInCostSS_USD <= 0) throw new Error("Supplier margin yields non-positive SS laid-in cost.");
+
+        const tariffFactor = 1 + tariffFrac;
+        if (tariffFactor <= 0) throw new Error("Tariff cannot be -100% or less.") // Avoid division by zero/negative
+
+        caseCostUSD = (supplierLaidInCostSS_USD - diLogistics) / tariffFactor;
+        if (isNaN(caseCostUSD) || caseCostUSD <= 0) throw new Error("Logistics/Tariff yield non-positive base USD cost.");
+
+        // Convert calculated Base USD cost back to original currency
+        if (effectiveExchangeRate <= 0) throw new Error("Cannot convert back: Invalid effective exchange rate (<=0).");
+        baseCasePriceOriginal = caseCostUSD / effectiveExchangeRate; // Corrected: Divide
+        baseBottleCostOriginal = baseCasePriceOriginal / casePack;
+
+        // Update non-editable cost fields in UI state for reverse mode display
+         setFormData(prev => ({
+            ...prev,
+             bottleCost: baseBottleCostOriginal.toFixed(4), // Display calculated original cost
+             casePrice: baseCasePriceOriginal.toFixed(2)
+        }));
+      }
+
+        // --- Common Calculations (Forward & Post-Reverse) ---
+        if (isNaN(caseCostUSD) || caseCostUSD <= 0) throw new Error("Base USD cost is invalid or non-positive.");
+
+         const marginCheck = (margin, name) => {
+             if (isNaN(margin) || margin >= 100 || margin < 0) throw new Error(`Invalid ${name} (${margin}%). Must be 0-99.99.`);
+             return margin / 100;
+         };
+
+        // Re-validate margins here as they might be changed between mode switches
         const supplierMargin = marginCheck(supplierMarginPercent, "Supplier Margin");
         const distributorMargin = marginCheck(distributorMarginPercent, "Distributor Margin");
         const distBtgMargin = marginCheck(distBtgMarginPercent, "Distributor BTG Margin");
         const retailerMargin = marginCheck(retailerMarginPercent, "Retailer Margin");
+        const tariffFrac = tariffPercent / 100;
+        if (isNaN(tariffFrac) || tariffFrac < 0) throw new Error("Invalid Tariff percentage.");
 
-        // --- Forward Calculations (common part) ---
-        tariffAmountUSD = caseCostUSD * (tariffPercent / 100);
 
-        // --- Direct Import (DI) Calculations ---
-        supplierLaidInCostDI_USD = caseCostUSD + tariffAmountUSD + diLogistics;
-        supplierFobDI_USD = supplierLaidInCostDI_USD / (1 - supplierMargin);
-        distributorLaidInCostDI_USD = supplierFobDI_USD; // Supplier FOB is Distributor Laid-In for DI
-        distCaseWholesaleDI_USD = distributorLaidInCostDI_USD / (1 - distributorMargin);
-        distBottleWholesaleDI_USD = distCaseWholesaleDI_USD / casePack;
-        distBtgPriceDI_USD = distBottleWholesaleDI_USD / (1 - distBtgMargin); // BTG price from Whsl Bottle
-        srpDi_USD = distBottleWholesaleDI_USD / (1 - retailerMargin);
+        const tariffAmountUSD = caseCostUSD * tariffFrac;
+        const supplierLaidInCostDI_USD = caseCostUSD + tariffAmountUSD + diLogistics;
+         if(supplierLaidInCostDI_USD <= 0) throw new Error("Supplier DI Laid-In Cost is non-positive.");
 
-        // --- Stateside (SS) Calculations ---
-        supplierLaidInCostSS_USD = caseCostUSD + tariffAmountUSD + diLogistics; // Same starting point as DI Supp Laid In
-        supplierFobSS_USD = supplierLaidInCostSS_USD / (1 - supplierMargin);
-        distributorLaidInCostSS_USD = supplierFobSS_USD + statesideLogistics; // Add SS logistics
-        distCaseWholesaleSS_USD = distributorLaidInCostSS_USD / (1 - distributorMargin);
-        distBottleWholesaleSS_USD = distCaseWholesaleSS_USD / casePack;
-        distBtgPriceSS_USD = distBottleWholesaleSS_USD / (1 - distBtgMargin); // BTG price from Whsl Bottle
-        srpSs_USD = distBottleWholesaleSS_USD / (1 - retailerMargin);
+        const supplierFobDI_USD = supplierLaidInCostDI_USD / (1 - supplierMargin);
+        const supplierLaidInCostSS_USD = supplierLaidInCostDI_USD; // Base cost before SS logistics is the same
+        const supplierFobSS_USD = supplierLaidInCostSS_USD / (1 - supplierMargin); // Apply same margin
 
-        // --- Apply SRP Rounding (if enabled) ---
-        if (formData.roundSrp) {
-            // Store original values before rounding
-            originalDistCaseWholesaleDI_USD = distCaseWholesaleDI_USD;
-            originalDistBottleWholesaleDI_USD = distBottleWholesaleDI_USD;
-            originalDistCaseWholesaleSS_USD = distCaseWholesaleSS_USD;
-            originalDistBottleWholesaleSS_USD = distBottleWholesaleSS_USD;
+        const distributorLaidInCostDI_USD = supplierFobDI_USD; // Dist cost starts where Supp FOB ends
+        const distCaseWholesaleDI_USD = distributorLaidInCostDI_USD / (1 - distributorMargin);
+        const distBottleWholesaleDI_USD = distCaseWholesaleDI_USD / casePack;
+        const distBtgPriceDI_USD = distBottleWholesaleDI_USD / (1 - distBtgMargin); // Use bottle wholesale
 
-            // Round SRPs
-            const roundedSrpDi = Math.floor(srpDi_USD) + 0.99;
-            const roundedSrpSs = Math.floor(srpSs_USD) + 0.99;
+        const distributorLaidInCostSS_USD = supplierFobSS_USD + statesideLogistics; // Add SS logistics
+         if(distributorLaidInCostSS_USD <= 0) throw new Error("Distributor SS Laid-In Cost is non-positive.");
+        const distCaseWholesaleSS_USD = distributorLaidInCostSS_USD / (1 - distributorMargin);
+        const distBottleWholesaleSS_USD = distCaseWholesaleSS_USD / casePack;
+        const distBtgPriceSS_USD = distBottleWholesaleSS_USD / (1 - distBtgMargin); // Use bottle wholesale
 
-             // Recalculate backwards from rounded SRP to get adjusted wholesale prices
-            distBottleWholesaleDI_USD = roundedSrpDi * (1 - retailerMargin);
-            distCaseWholesaleDI_USD = distBottleWholesaleDI_USD * casePack;
-            // Check distBtgMargin before division
-            distBtgPriceDI_USD = distBtgMargin < 1 ? distBottleWholesaleDI_USD / (1 - distBtgMargin) : Infinity;
 
-            distBottleWholesaleSS_USD = roundedSrpSs * (1 - retailerMargin);
-            distCaseWholesaleSS_USD = distBottleWholesaleSS_USD * casePack;
-            // Check distBtgMargin before division
-            distBtgPriceSS_USD = distBtgMargin < 1 ? distBottleWholesaleSS_USD / (1 - distBtgMargin) : Infinity;
-
-            // Update final SRPs to the rounded values
-            srpDi_USD = roundedSrpDi;
-            srpSs_USD = roundedSrpSs;
-        }
-
-         // --- Gross Profit Calculations (if casesSold > 0) ---
-         let supplierGrossProfitDI = null;
-         let distributorGrossProfitDI = null;
-         let supplierGrossProfitSS = null;
-         let distributorGrossProfitSS = null;
-
-         if (casesSold > 0) {
-             supplierGrossProfitDI = (supplierFobDI_USD - supplierLaidInCostDI_USD) * casesSold;
-             distributorGrossProfitDI = (distCaseWholesaleDI_USD - distributorLaidInCostDI_USD) * casesSold;
-             supplierGrossProfitSS = (supplierFobSS_USD - supplierLaidInCostSS_USD) * casesSold;
-             distributorGrossProfitSS = (distCaseWholesaleSS_USD - distributorLaidInCostSS_USD) * casesSold;
+        // Check for division-by-zero in intermediate calculations (margins = 100%)
+         if (![supplierFobDI_USD, supplierFobSS_USD, distCaseWholesaleDI_USD, distCaseWholesaleSS_USD, distBtgPriceDI_USD, distBtgPriceSS_USD].every(val => isFinite(val) && val >= 0)) {
+              throw new Error("Calculation resulted in non-finite or negative intermediate price due to margin(s).");
          }
 
-        // --- Set Results ---
+        // SRP Calculation
+        let srpDi_USD = distBottleWholesaleDI_USD / (1 - retailerMargin);
+        let srpSs_USD = distBottleWholesaleSS_USD / (1 - retailerMargin);
+
+        let adjustedCaseWholesaleDI_USD = distCaseWholesaleDI_USD;
+        let adjustedBottleWholesaleDI_USD = distBottleWholesaleDI_USD;
+        let adjustedCaseWholesaleSS_USD = distCaseWholesaleSS_USD;
+        let adjustedBottleWholesaleSS_USD = distBottleWholesaleSS_USD;
+        let adjustedDistBtgPriceDI_USD = distBtgPriceDI_USD;
+        let adjustedDistBtgPriceSS_USD = distBtgPriceSS_USD;
+        let originalSrpDi_USD = srpDi_USD, originalSrpSs_USD = srpSs_USD; // Store pre-rounding SRP
+
+        if (formData.roundSrp && formData.calculationMode === 'forward') { // Only apply rounding effect forward
+            srpDi_USD = roundToNearest99(srpDi_USD);
+            srpSs_USD = roundToNearest99(srpSs_USD);
+
+            // Recalculate upstream prices based on the rounded SRP
+            adjustedBottleWholesaleDI_USD = srpDi_USD * (1 - retailerMargin);
+            adjustedCaseWholesaleDI_USD = adjustedBottleWholesaleDI_USD * casePack;
+            adjustedDistBtgPriceDI_USD = adjustedBottleWholesaleDI_USD / (1 - distBtgMargin); // Recalc BTG based on adjusted bottle
+
+            adjustedBottleWholesaleSS_USD = srpSs_USD * (1 - retailerMargin);
+            adjustedCaseWholesaleSS_USD = adjustedBottleWholesaleSS_USD * casePack;
+            adjustedDistBtgPriceSS_USD = adjustedBottleWholesaleSS_USD / (1 - distBtgMargin); // Recalc BTG based on adjusted bottle
+        } else if (formData.calculationMode === 'reverse') {
+            // In reverse mode, the target SRP was the starting point.
+            // We display the user's target SRP as the result for consistency.
+            srpDi_USD = targetSrp; // <-- FIX: Use the targetSrp variable
+            srpSs_USD = targetSrp; // <-- FIX: Use the targetSrp variable
+            // Note: If rounding was enabled, the reverse calculation already factored
+            // this in by starting from the target. We simply display the target back.
+        }
+
+        // Gross Profit
+        let supplierGrossProfitDI = null, distributorGrossProfitDI = null;
+        let supplierGrossProfitSS = null, distributorGrossProfitSS = null;
+        if (casesSold > 0) {
+             supplierGrossProfitDI = (supplierFobDI_USD - supplierLaidInCostDI_USD) * casesSold;
+             distributorGrossProfitDI = (adjustedCaseWholesaleDI_USD - distributorLaidInCostDI_USD) * casesSold; // Use adjusted wholesale for GP
+             supplierGrossProfitSS = (supplierFobSS_USD - supplierLaidInCostSS_USD) * casesSold;
+             distributorGrossProfitSS = (adjustedCaseWholesaleSS_USD - distributorLaidInCostSS_USD) * casesSold; // Use adjusted wholesale for GP
+        }
+
         setCalculations({
-            effectiveExchangeRate,
-            caseCostUSD,
-            tariffAmountUSD,
-            // DI
-            supplierLaidInCostDI_USD,
-            supplierFobDI_USD,
-            distributorLaidInCostDI_USD,
-            distCaseWholesaleDI_USD,
-            distBottleWholesaleDI_USD,
-            distBtgPriceDI_USD,
-            srpDi_USD,
-            originalDistCaseWholesaleDI_USD, // Will be null if rounding is off
-            originalDistBottleWholesaleDI_USD, // Will be null if rounding is off
-            // SS
-            supplierLaidInCostSS_USD,
-            supplierFobSS_USD,
-            distributorLaidInCostSS_USD,
-            distCaseWholesaleSS_USD,
-            distBottleWholesaleSS_USD,
-            distBtgPriceSS_USD,
-            srpSs_USD,
-            originalDistCaseWholesaleSS_USD, // Will be null if rounding is off
-            originalDistBottleWholesaleSS_USD, // Will be null if rounding is off
-            // GP
-            supplierGrossProfitDI,
-            distributorGrossProfitDI,
-            supplierGrossProfitSS,
-            distributorGrossProfitSS,
-            // Reverse Mode Specific
-            baseBottleCostOriginal, // Original currency bottle cost derived
-            baseCasePriceOriginal   // Original currency case price derived
+            effectiveExchangeRate, caseCostUSD, tariffAmountUSD,
+            supplierLaidInCostDI_USD, supplierFobDI_USD, distributorLaidInCostDI_USD,
+            distCaseWholesaleDI_USD: adjustedCaseWholesaleDI_USD, distBottleWholesaleDI_USD: adjustedBottleWholesaleDI_USD,
+            distBtgPriceDI_USD: adjustedDistBtgPriceDI_USD, srpDi_USD, originalSrpDi_USD,
+            supplierLaidInCostSS_USD, supplierFobSS_USD, distributorLaidInCostSS_USD,
+            distCaseWholesaleSS_USD: adjustedCaseWholesaleSS_USD, distBottleWholesaleSS_USD: adjustedBottleWholesaleSS_USD,
+            distBtgPriceSS_USD: adjustedDistBtgPriceSS_USD, srpSs_USD, originalSrpSs_USD,
+            supplierGrossProfitDI, distributorGrossProfitDI,
+            supplierGrossProfitSS, distributorGrossProfitSS,
+            baseBottleCostOriginal, baseCasePriceOriginal
         });
+        // Clear specific calculation error on success, keep input validation errors
+        setErrors(prev => ({ ...prev, calculation: null }));
 
     } catch (error) {
         console.error("Calculation Error:", error);
-        setErrors(prev => ({ ...prev, calculation: error.message }));
+        const errorMessage = (error instanceof Error) ? error.message : "An unexpected error occurred during calculation.";
+        // Set calculation error, keep existing input errors
+        setErrors(prev => ({ ...prev, calculation: errorMessage }));
         setCalculations({}); // Clear results on error
     } finally {
         setIsCalculating(false);
     }
   }, [formData]); // Dependency: Recalculate whenever formData changes
 
+  // --- Input Change Handler (Includes counterpart cost calc & basic validation) ---
+   const handleInputChange = useCallback((e) => {
+       const { name, value, type, checked } = e.target;
+       let newValue = type === 'checkbox' ? checked : value;
+       let fieldError = ""; // Error specific to this field
 
-  // --- Input Change Handler (Corrected for counterpart cost calculation) ---
-  const handleInputChange = useCallback((e) => {
-    const { name, value, type, checked } = e.target;
-    let newValue = type === 'checkbox' ? checked : value;
-    let error = "";
+       const numericFields = [
+           "bottleCost", "casePrice", "targetSrp", "exchangeRate", "customExchangeRate",
+           "exchangeBuffer", "diLogistics", "tariff", "statesideLogistics",
+           "supplierMargin", "distributorMargin", "distributorBtgMargin", "retailerMargin",
+           "casesSold"
+       ];
 
-    const numericFields = [
-      "bottleCost", "casePrice", "targetSrp", "exchangeRate", "customExchangeRate",
-      "exchangeBuffer", "diLogistics", "tariff", "statesideLogistics",
-      "supplierMargin", "distributorMargin", "distributorBtgMargin", "retailerMargin",
-      "casesSold"
-    ];
+       let updates = { [name]: newValue };
+       const currentMode = formData.calculationMode; // Use state from closure
+       const casePack = parseInt(formData.casePackSize, 10);
 
-    // Use a temporary object to hold updates for this change event
-    let updates = { [name]: newValue };
+       // Perform validation and counterpart calculation
+       if (numericFields.includes(name)) {
+           if (newValue === "" || newValue === "-") { // Allow empty or just negative sign temporarily
+               fieldError = "";
+               if (currentMode === 'forward') {
+                    if (name === 'bottleCost') updates.casePrice = "";
+                    else if (name === 'casePrice') updates.bottleCost = "";
+               }
+           } else {
+               const num = parseFloat(newValue);
+               if (isNaN(num)) {
+                   fieldError = "Invalid number";
+               } else {
+                   // Basic range checks
+                   if (["supplierMargin", "distributorMargin", "distributorBtgMargin", "retailerMargin"].includes(name) && (num < 0 || num >= 100)) { fieldError = "Must be 0-99.99"; }
+                   else if (["bottleCost", "casePrice", "targetSrp", "diLogistics", "statesideLogistics", "casesSold", "exchangeRate", "customExchangeRate", "exchangeBuffer"].includes(name) && num < 0 && newValue !== "-") { fieldError = "Cannot be negative"; }
+                   else if (name === "tariff" && (num < 0 || num > 200)) { fieldError = "Must be 0-200"; }
+                   else { fieldError = ""; } // Clear error if it seems valid for now
 
-    if (numericFields.includes(name)) {
-      if (newValue !== "" ) {
-        const num = parseFloat(newValue);
-        if(isNaN(num)) {
-          // If parsing fails, set error but keep the invalid input temporarily for user feedback
-          error = "Invalid number";
-          // updates[name] = formData[name] || ""; // Option: revert, but maybe confusing
-        } else {
-          // Basic range checks (more comprehensive checks in calculatePricing)
-          if (["supplierMargin", "distributorMargin", "distributorBtgMargin", "retailerMargin"].includes(name) && (num < 0 || num >= 100)) { error = "Must be 0-99.99"; }
-          else if (["bottleCost", "casePrice", "targetSrp", "diLogistics", "statesideLogistics", "casesSold", "exchangeRate", "customExchangeRate", "exchangeBuffer"].includes(name) && num < 0) { error = "Cannot be negative"; }
-          else if (name === "tariff" && (num < 0 || num > 200)) { error = "Must be 0-200"; }
-          else { error = ""; } // Clear error if it seems valid for now
+                   // Counterpart Calculation Logic (only in forward mode, only if casePack is valid)
+                   if (currentMode === 'forward' && !isNaN(casePack) && casePack > 0 && !isNaN(num) && num >= 0) {
+                       if (name === 'bottleCost') {
+                           updates.casePrice = (num * casePack).toFixed(2);
+                       } else if (name === 'casePrice') {
+                           updates.bottleCost = (num / casePack).toFixed(4);
+                       }
+                   }
+               }
+           }
+           // Don't overwrite bottle/case cost in reverse mode during input
+           if (currentMode === 'reverse' && (name === 'bottleCost' || name === 'casePrice')) {
+              delete updates[name]; // Prevent direct user edit in reverse mode
+              fieldError = "Calculated in Reverse mode";
+           }
 
-          // --- Counterpart Calculation Logic ---
-          const currentMode = formData.calculationMode; // Use previous state for checks
-          const casePack = parseInt(formData.casePackSize, 10);
-          if (currentMode === 'forward' && !isNaN(casePack) && casePack > 0 && !isNaN(num) && num >= 0) {
-              if (name === 'bottleCost') {
-                  const calculatedCasePrice = (num * casePack).toFixed(2);
-                  updates.casePrice = calculatedCasePrice; // Add casePrice to updates
-              } else if (name === 'casePrice') {
-                  const calculatedBottleCost = (num / casePack).toFixed(4); // More precision for bottle cost derived
-                  updates.bottleCost = calculatedBottleCost; // Add bottleCost to updates
-              }
-          }
-          // --- End Counterpart Logic ---
-
-          // Use the raw input value for the field being directly edited
-          updates[name] = value;
-        }
-      } else { // Field was cleared
-         error = "";
-         // Clear counterpart if one is cleared in forward mode
-         const currentMode = formData.calculationMode; // Use previous state
-         if (currentMode === 'forward') {
-              if (name === 'bottleCost') { updates.casePrice = ""; }
-              else if (name === 'casePrice') { updates.bottleCost = ""; }
-         }
-      }
-    }
-
-    // Update errors state separately for the specific field
-    setErrors((prev) => ({ ...prev, [name]: error }));
-
-    // Update form data state using the 'updates' object
-    setFormData((prev) => {
-      let newState = { ...prev, ...updates }; // Apply all accumulated updates
-
-      // Mode switch logic (clear other mode's primary input)
-      if (name === 'calculationMode') {
-        if (newValue === 'reverse') {
-            newState.bottleCost = '';
-            newState.casePrice = '';
-            // Clear potentially irrelevant errors
-            setErrors(e => ({...e, bottleCost: null, casePrice: null, costInput: null}));
-        } else if (newValue === 'forward') {
-            newState.targetSrp = '';
-             // Clear potentially irrelevant errors
-            setErrors(e => ({...e, targetSrp: null}));
-        }
-      }
-      // If casePackSize changes in forward mode, recalc casePrice from bottleCost
-      else if (name === 'casePackSize' && newState.calculationMode === 'forward') {
-          const existingBottleCost = parseFloat(newState.bottleCost);
-          const newCasePack = parseInt(newValue, 10); // Use updated case pack size from 'newValue'
-          if (!isNaN(existingBottleCost) && existingBottleCost > 0 && !isNaN(newCasePack) && newCasePack > 0) {
-              newState.casePrice = (existingBottleCost * newCasePack).toFixed(2);
-          } else if (newState.bottleCost !== '') { // Only clear case price if bottle cost was not empty
-              // If bottle cost isn't valid, clear case price to avoid inconsistency
-              newState.casePrice = "";
-          }
-      }
-      // Reset custom rate display if base rate changes and override is off
-       if (name === 'exchangeRate' && !newState.useCustomExchangeRate) {
-           const newRate = parseFloat(updates.exchangeRate); // Use the rate from updates
-           newState.customExchangeRate = !isNaN(newRate) ? newRate.toFixed(4) : DEFAULT_FORM_DATA.customExchangeRate;
+       } else if (name === 'calculationMode' && newValue === 'reverse') {
+           // When switching to reverse, clear the cost inputs as they will be calculated
+           updates.bottleCost = '';
+           updates.casePrice = '';
+           fieldError = ""; // No error on mode switch itself
+       } else if (name === 'calculationMode' && newValue === 'forward') {
+            // When switching to forward, clear target SRP
+           updates.targetSrp = '';
+           fieldError = ""; // No error on mode switch itself
+       } else {
+          fieldError = ""; // Clear errors for non-numeric fields or valid changes
        }
 
-      return newState;
-    });
+       setFormData(prev => ({ ...prev, ...updates }));
 
-  }, [formData]); // Keep dependency on full formData to access other values like casePackSize, mode
+       // Update errors state: set or clear the error for the specific field
+       setErrors(prev => ({
+           ...prev,
+           [name]: fieldError || null // Use null to clear the error if fieldError is empty
+       }));
 
+   }, [formData.calculationMode, formData.casePackSize]); // Dependencies
+
+
+  // --- Other Handlers (Currency, Select, Custom Rate Toggle, Refresh) ---
+  const handleCurrencyChange = useCallback((e) => {
+    const newCurrency = e.target.value;
+    setFormData(prev => ({ ...prev, currency: newCurrency }));
+    // Fetch rate if switching TO EUR and not using custom
+    if (newCurrency === 'EUR' && !formData.useCustomExchangeRate) {
+       fetchRateFromOER(false); // Pass false, don't force unless refresh button is clicked
+    } else {
+       setExchangeRateError(null); // Clear API error if switching to USD
+    }
+    // Clear calculation error when currency changes
+     setErrors(prev => ({ ...prev, calculation: null }));
+  }, [fetchRateFromOER, formData.useCustomExchangeRate]); // Include fetchRate and custom setting
 
   const handleSelectChange = useCallback((e) => {
     const { name, value } = e.target;
-     // Parse casePackSize as integer
-    const processedValue = name === 'casePackSize' ? parseInt(value, 10) : value;
+    let updates = { [name]: value };
 
-    // Trigger handleInputChange logic for casePackSize to update counterpart cost
-    if (name === 'casePackSize') {
-        handleInputChange(e); // Simulate input change to trigger recalc
-    } else {
-        // For other selects, update directly
-        setFormData(prev => ({
-            ...prev,
-            [name]: processedValue
-        }));
+    // Recalculate counterpart cost if casePackSize changes in forward mode
+    if (name === 'casePackSize' && formData.calculationMode === 'forward') {
+        const newCasePack = parseInt(value, 10);
+        const bottleCost = parseFloat(formData.bottleCost);
+        const casePrice = parseFloat(formData.casePrice);
+
+        if (!isNaN(newCasePack) && newCasePack > 0) {
+             if (!isNaN(bottleCost) && bottleCost > 0) {
+                 updates.casePrice = (bottleCost * newCasePack).toFixed(2);
+             } else if (!isNaN(casePrice) && casePrice > 0) {
+                 updates.bottleCost = (casePrice / newCasePack).toFixed(4);
+             }
+         }
     }
-  }, [handleInputChange]); // Need handleInputChange as dependency
 
-  const handleCurrencyChange = useCallback((e) => {
-    const newCurrency = e.target.value;
-    setFormData(prev => {
-        const newState = { ...prev, currency: newCurrency };
-        // Clear cost inputs when currency changes to avoid confusion
-        newState.bottleCost = '';
-        newState.casePrice = '';
-        // Optionally reset custom rate toggle if desired when switching currency
-        // newState.useCustomExchangeRate = false;
-        return newState;
-    });
-    // Clear related errors
-    setErrors(e => ({...e, bottleCost: null, casePrice: null, costInput: null}));
+    setFormData(prev => ({ ...prev, ...updates }));
+    // Clear calculation error when selects change
+     setErrors(prev => ({ ...prev, calculation: null }));
+  }, [formData.calculationMode, formData.bottleCost, formData.casePrice]); // Add dependencies
 
-    // If switching TO EUR, trigger a rate fetch/cache check AFTER state update
-    if (newCurrency === 'EUR') {
-        // Use timeout to ensure state update is processed before fetch check
-         setTimeout(() => fetchCurrentExchangeRateWithCache(false), 0);
-    }
- }, [fetchCurrentExchangeRateWithCache]);
+  const handleCustomRateToggle = useCallback((e) => {
+      const useCustom = e.target.checked;
+      setFormData(prev => {
+          // If switching TO custom, set customRate to current fetched rate initially
+          // If switching OFF custom, ensure fetched rate is triggered if needed
+          const newCustomRate = useCustom ? prev.exchangeRate : prev.customExchangeRate;
+          return { ...prev, useCustomExchangeRate: useCustom, customExchangeRate: newCustomRate };
+      });
+      // If switching OFF custom and currency is EUR, trigger a fetch (respecting cache)
+      if (!useCustom && formData.currency === 'EUR') {
+          fetchRateFromOER(false); // Don't force
+      } else if (useCustom) {
+          setExchangeRateError(null); // Clear API error if switching to custom
+      }
+        // Clear calculation error when toggling custom rate
+       setErrors(prev => ({ ...prev, calculation: null }));
+  }, [fetchRateFromOER, formData.currency]); // Add dependencies
 
+  const handleRefreshRate = useCallback(() => {
+      console.log(">>> Manual Refresh Clicked");
+      if (formData.currency === 'EUR' && !formData.useCustomExchangeRate) {
+          fetchRateFromOER(true); // Force refresh = true
+      } else {
+           console.log(">>> Refresh skipped (Not EUR or using Custom)");
+           setExchangeRateError("Refresh only available for EUR currency when not using manual rate.");
+           setTimeout(() => setExchangeRateError(null), 4000); // Clear message after a delay
+      }
+  }, [fetchRateFromOER, formData.currency, formData.useCustomExchangeRate]); // Add dependencies
 
   // --- Effects ---
-
-  // Initial Exchange Rate Fetch on Load (if currency is EUR)
+  // Initial rate fetch on mount if currency is EUR and not using custom
   useEffect(() => {
     if (formData.currency === 'EUR' && !formData.useCustomExchangeRate) {
-        fetchCurrentExchangeRateWithCache(false); // false = use cache if valid
+        fetchRateFromOER(false); // Initial fetch, don't force
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only once on mount
+  }, []); // Run only on mount
 
-  // Trigger calculation when relevant formData changes (debounced slightly)
+
+  // Debounced calculation trigger
+  const calculationTimeoutRef = useRef(null);
   useEffect(() => {
-    // Debounce calculation to prevent rapid updates while typing
-    const handler = setTimeout(() => {
-      // Check if calculation is feasible before running
-       if (formData.calculationMode === 'forward' && (formData.bottleCost || formData.casePrice)) {
-          calculatePricing();
-       } else if (formData.calculationMode === 'reverse' && formData.targetSrp) {
-           calculatePricing();
-       } else {
-           // If primary inputs are missing, clear results but don't set calculation error yet
-            setCalculations({});
-            // Optional: Clear previous calculation error if inputs are now invalid/empty
-            // setErrors(prev => ({...prev, calculation: null}));
-       }
-    }, 300); // 300ms debounce delay
+    clearTimeout(calculationTimeoutRef.current); // Clear previous timeout
+    calculationTimeoutRef.current = setTimeout(() => {
+        // Check for critical input errors before calculating
+        const hasCriticalError = errors.bottleCost || errors.casePrice || errors.costInput || errors.targetSrp || errors.exchangeRate || errors.customExchangeRate || errors.exchangeBuffer || errors.diLogistics || errors.tariff || errors.statesideLogistics || errors.supplierMargin || errors.distributorMargin || errors.distributorBtgMargin || errors.retailerMargin || errors.casesSold;
 
-    return () => {
-      clearTimeout(handler); // Clear timeout if formData changes again quickly
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-      formData.calculationMode, formData.bottleCost, formData.casePrice, formData.casePackSize,
-      formData.currency, formData.exchangeRate, formData.exchangeBuffer, formData.useCustomExchangeRate, formData.customExchangeRate,
-      formData.diLogistics, formData.tariff, formData.statesideLogistics,
-      formData.supplierMargin, formData.distributorMargin, formData.distributorBtgMargin, formData.retailerMargin,
-      formData.roundSrp, formData.targetSrp, formData.casesSold,
-      calculatePricing // Include the callback itself
-    ]);
-
-  // --- Action Handlers (Save, Export, Print, Reset) ---
-
-  const handleSaveClick = () => {
-    if (isCalculating) {
-        alert("Please wait for calculations to finish before saving.");
-        return;
-    }
-    // Check if there are results to save
-    if (!calculations || Object.keys(calculations).length === 0) {
-       alert("No calculation results to save. Please enter inputs first.");
-       return;
-    }
-
-    // Suggest a name based on wine name or timestamp
-    const defaultName = formData.wineName || `Calculation ${new Date().toLocaleString()}`;
-    const calculationName = prompt("Enter a name for this calculation:", defaultName);
-
-    // Proceed only if user provides a name (didn't click cancel)
-    if (calculationName) {
-        const savedData = {
-            id: Date.now(), // Simple unique ID using timestamp
-            name: calculationName,
-            timestamp: new Date().toISOString(),
-            inputs: formData,
-            results: calculations, // Save the raw calculated numbers
-        };
-
-        try {
-            // Retrieve existing saves, defaulting to an empty array
-            const existingSavesJson = localStorage.getItem('winePricingSaves');
-            let existingSaves = [];
-            if (existingSavesJson) {
-                try {
-                    existingSaves = JSON.parse(existingSavesJson);
-                    // Ensure it's an array
-                    if (!Array.isArray(existingSaves)) {
-                        console.warn("Invalid data in localStorage 'winePricingSaves', resetting.");
-                        existingSaves = [];
-                    }
-                } catch (parseError) {
-                    console.error("Error parsing localStorage 'winePricingSaves':", parseError);
-                    existingSaves = []; // Reset if parsing fails
-                }
-            }
-
-            // Add the new save and store back to localStorage
-            existingSaves.push(savedData);
-            localStorage.setItem('winePricingSaves', JSON.stringify(existingSaves));
-            alert(`Calculation "${savedData.name}" saved successfully!`);
-        } catch (storageError) {
-            console.error("Failed to save to localStorage:", storageError);
-            alert('Failed to save calculation. Local storage might be full or unavailable.');
+        if (!hasCriticalError) {
+            calculatePricing();
+        } else {
+            console.log("Skipping calculation due to input errors:", errors);
+            // Optionally clear old calculation results if input is now invalid
+             setCalculations({});
         }
-    } else {
-        alert("Save cancelled.");
+    }, CALCULATION_TIMEOUT); // Delay calculation
+
+    // Cleanup function to clear timeout if component unmounts or formData changes again
+    return () => clearTimeout(calculationTimeoutRef.current);
+  }, [formData, errors, calculatePricing]); // Re-run when formData or errors change
+
+ // --- Action Handlers (Save, Download, Print) ---
+ const handleSave = () => { alert('Save functionality not yet implemented.'); };
+ const handleDownload = () => {
+    if (!calculations.srpDi_USD && !calculations.srpSs_USD) {
+        alert("Please perform a calculation first.");
+        return;
     }
-  };
+    // Header Row
+    const headers = [
+        "Parameter", "Value",
+        "DI Parameter", "DI Value (USD)",
+        "SS Parameter", "SS Value (USD)"
+    ];
+    // Input Data
+    const inputData = [
+        ["Wine Name", formData.wineName],
+        ["Calculation Mode", formData.calculationMode],
+        ["Supplier Currency", formData.currency],
+        [`Bottle Cost (${formData.currency})`, formData.bottleCost],
+        [`Case Price (${formData.currency})`, formData.casePrice],
+        ["Case Pack Size", formData.casePackSize],
+        ["Bottle Size", formData.bottleSize],
+        ["Exchange Rate Source", formData.useCustomExchangeRate ? "Manual" : "Fetched"],
+        ["Base Exchange Rate", formData.useCustomExchangeRate ? "N/A" : formData.exchangeRate],
+        ["Manual Exchange Rate", formData.useCustomExchangeRate ? formData.customExchangeRate : "N/A"],
+        ["Exchange Buffer (%)", formData.exchangeBuffer],
+        ["Effective Rate (EUR->USD)", calculations.effectiveExchangeRate?.toFixed(5) ?? 'N/A'],
+        ["DI Logistics ($/Case)", formData.diLogistics],
+        ["Tariff (%)", formData.tariff],
+        ["Stateside Logistics ($/Case)", formData.statesideLogistics],
+        ["Supplier Margin (%)", formData.supplierMargin],
+        ["Distributor Margin (%)", formData.distributorMargin],
+        ["Distributor BTG Margin (%)", formData.distributorBtgMargin],
+        ["Retailer Margin (%)", formData.retailerMargin],
+        ["Round SRP?", formData.roundSrp ? 'Yes' : 'No'],
+        ["Cases Sold (for GP)", formData.casesSold || "N/A"],
+        ["Target SRP (USD)", formData.calculationMode === 'reverse' ? formData.targetSrp : "N/A"]
+    ];
+    // Calculation Data
+    const calcDataDI = [
+        ["Base Case Cost (USD)", calculations.caseCostUSD],
+        ["Tariff Amount (USD)", calculations.tariffAmountUSD],
+        ["Supplier Laid-In DI (USD)", calculations.supplierLaidInCostDI_USD],
+        ["Supplier FOB DI (USD)", calculations.supplierFobDI_USD],
+        ["Distributor Laid-In DI (USD)", calculations.distributorLaidInCostDI_USD],
+        ["Distributor Whsl Case DI (USD)", calculations.distCaseWholesaleDI_USD],
+        ["Distributor Whsl Bottle DI (USD)", calculations.distBottleWholesaleDI_USD],
+        ["Distributor BTG Bottle DI (USD)", calculations.distBtgPriceDI_USD],
+        ["SRP DI (USD)", calculations.srpDi_USD],
+        ...(calculations.supplierGrossProfitDI != null ? [["Supplier GP DI (USD)", calculations.supplierGrossProfitDI]] : []),
+        ...(calculations.distributorGrossProfitDI != null ? [["Distributor GP DI (USD)", calculations.distributorGrossProfitDI]] : []),
+    ];
+    const calcDataSS = [
+        ["Base Case Cost (USD)", calculations.caseCostUSD], // Repeated for alignment
+        ["Tariff Amount (USD)", calculations.tariffAmountUSD], // Repeated
+        ["Supplier Laid-In SS (USD)", calculations.supplierLaidInCostSS_USD],
+        ["Supplier FOB SS (USD)", calculations.supplierFobSS_USD],
+        ["Distributor Laid-In SS (USD)", calculations.distributorLaidInCostSS_USD],
+        ["Distributor Whsl Case SS (USD)", calculations.distCaseWholesaleSS_USD],
+        ["Distributor Whsl Bottle SS (USD)", calculations.distBottleWholesaleSS_USD],
+        ["Distributor BTG Bottle SS (USD)", calculations.distBtgPriceSS_USD],
+        ["SRP SS (USD)", calculations.srpSs_USD],
+        ...(calculations.supplierGrossProfitSS != null ? [["Supplier GP SS (USD)", calculations.supplierGrossProfitSS]] : []),
+        ...(calculations.distributorGrossProfitSS != null ? [["Distributor GP SS (USD)", calculations.distributorGrossProfitSS]] : []),
+    ];
+     // Combine rows, ensuring alignment
+     const maxRows = Math.max(inputData.length, calcDataDI.length, calcDataSS.length);
+     let combinedRows = [];
+     for (let i = 0; i < maxRows; i++) {
+         const inputRow = inputData[i] || ["", ""];
+         const diRow = calcDataDI[i] || ["", ""];
+         const ssRow = calcDataSS[i] || ["", ""];
+         // Format numbers as numbers for CSV where appropriate, else use formatted string
+         const formatValue = (val) => typeof val === 'number' ? val.toFixed(4) : val;
 
-
-  const handleExportClick = () => {
-     if (isCalculating) {
-        alert("Please wait for calculations to finish before exporting.");
-        return;
+         combinedRows.push([
+             inputRow[0], formatValue(inputRow[1]),
+             diRow[0], formatValue(diRow[1]),
+             ssRow[0], formatValue(ssRow[1]),
+         ]);
      }
-      if (!calculations || Object.keys(calculations).length === 0) {
-        alert("No calculation results to export. Please enter inputs first.");
-        return;
-     }
 
-     // Define CSV structure
-     const csvRows = [
-        // Header Info
-        ['Wine Pricing Calculator Export'],
-        ['Wine Name', formData.wineName || 'N/A'],
-        ['Generated', new Date().toLocaleString()],
-        [], // Blank row
-        // Inputs Section
-        ['Input Parameter', 'Value', 'Units'],
-        ['Calculation Mode', formData.calculationMode, ''],
-        ['Supplier Cost Currency', formData.currency, ''],
-        ['Bottle Cost Input', formData.bottleCost || 'N/A', formData.currency],
-        ['Case Price Input', formData.casePrice || 'N/A', formData.currency],
-        ['Case Pack Size', formData.casePackSize, 'bottles'],
-        ['Bottle Size', formData.bottleSize, ''],
-        ['Target SRP (Reverse Mode)', formData.calculationMode === 'reverse' ? formData.targetSrp || 'N/A' : 'N/A', 'USD'],
-        [], // Blank row
-        ['Exchange Rate (EUR to USD)'],
-        ['Base Rate Fetched/Set', calculations.effectiveExchangeRate ? (formData.exchangeRate?.toFixed(4) || 'N/A') : 'N/A', ''], // Show base rate from state
-        ['Buffer', formData.useCustomExchangeRate ? 'N/A' : formData.exchangeBuffer, formData.useCustomExchangeRate ? '' : '%'],
-        ['Custom Rate Used', formData.useCustomExchangeRate ? formData.customExchangeRate : 'N/A', ''],
-        ['Effective Rate Applied', calculations.effectiveExchangeRate?.toFixed(4) || 'N/A', ''],
-        [], // Blank row
-        ['Costs & Margins'],
-        ['DI Logistics', formData.diLogistics, 'USD/case'],
-        ['Tariff', formData.tariff, '%'],
-        ['Stateside Logistics', formData.statesideLogistics, 'USD/case'],
-        ['Supplier Margin', formData.supplierMargin, '%'],
-        ['Distributor Margin', formData.distributorMargin, '%'],
-        ['Distributor BTG Margin', formData.distributorBtgMargin, '%'],
-        ['Retailer Margin', formData.retailerMargin, '%'],
-        ['Round SRP?', formData.roundSrp ? 'Yes' : 'No', ''],
-        ['Cases Sold (for GP)', formData.casesSold || 'N/A', 'cases'],
-        [], // Blank row
+     const csvContent = [
+         headers.map(escapeCsvCell).join(','),
+         ...combinedRows.map(row => row.map(escapeCsvCell).join(','))
+     ].join('\n');
 
-        // Derived Original Cost (Reverse Mode Only)
-        ...(formData.calculationMode === 'reverse' ? [
-            ['Derived Supplier Cost (Reverse Calc)'],
-            ['Derived Bottle Cost', calculations.baseBottleCostOriginal?.toFixed(4) || 'N/A', formData.currency],
-            ['Derived Case Price', calculations.baseCasePriceOriginal?.toFixed(4) || 'N/A', formData.currency],
-            ['Equivalent Base Case Cost (USD)', formatCurrency(calculations.caseCostUSD), 'USD'],
-            [], // Blank row
-        ] : []),
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    const safeWineName = (formData.wineName || 'WinePricing').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    link.setAttribute('download', `${safeWineName}_pricing_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+ };
+ const handlePrint = () => { window.print(); };
 
-        // Direct Import Results
-        ['Direct Import Pricing (USD)'],
-        ['Metric', 'Value'],
-        ['Base Case Cost (USD)', formatCurrency(calculations.caseCostUSD)],
-        ['Tariff Amount', formatCurrency(calculations.tariffAmountUSD)],
-        ['Supp. Laid-In DI', formatCurrency(calculations.supplierLaidInCostDI_USD)],
-        ['Supp. FOB DI', formatCurrency(calculations.supplierFobDI_USD)],
-        ['Dist. Laid-In DI', formatCurrency(calculations.distributorLaidInCostDI_USD)],
-        ['Dist. Whsl Case DI', formatCurrency(calculations.distCaseWholesaleDI_USD)],
-        ['Dist. Whsl Bottle DI', formatCurrency(calculations.distBottleWholesaleDI_USD)],
-        ['Dist. BTG Bottle DI', formatCurrency(calculations.distBtgPriceDI_USD)],
-        ['SRP (DI)', formatCurrency(calculations.srpDi_USD)],
-        ...(formData.roundSrp && calculations.originalDistCaseWholesaleDI_USD !== null ? [ // Check for null explicitly
-            ['Original Whsl Case DI (Pre-Rounding)', formatCurrency(calculations.originalDistCaseWholesaleDI_USD)],
-            ['Original Whsl Bottle DI (Pre-Rounding)', formatCurrency(calculations.originalDistBottleWholesaleDI_USD)],
-        ] : []),
-        [], // Blank row
+  // --- Render Logic ---
+  const hasCalculations = calculations && calculations.srpDi_USD; // Check if results exist
 
-        // Stateside Results
-        ['Stateside Pricing (USD)'],
-        ['Metric', 'Value'],
-        ['Supp. Base Cost SS', formatCurrency(calculations.supplierLaidInCostSS_USD)], // Cost before SS Logistics
-        ['Supp. FOB SS', formatCurrency(calculations.supplierFobSS_USD)],
-        ['Dist. Laid-In SS', formatCurrency(calculations.distributorLaidInCostSS_USD)],
-        ['Dist. Whsl Case SS', formatCurrency(calculations.distCaseWholesaleSS_USD)],
-        ['Dist. Whsl Bottle SS', formatCurrency(calculations.distBottleWholesaleSS_USD)],
-        ['Dist. BTG Bottle SS', formatCurrency(calculations.distBtgPriceSS_USD)],
-        ['SRP (SS)', formatCurrency(calculations.srpSs_USD)],
-         ...(formData.roundSrp && calculations.originalDistCaseWholesaleSS_USD !== null ? [ // Check for null explicitly
-            ['Original Whsl Case SS (Pre-Rounding)', formatCurrency(calculations.originalDistCaseWholesaleSS_USD)],
-            ['Original Whsl Bottle SS (Pre-Rounding)', formatCurrency(calculations.originalDistBottleWholesaleSS_USD)],
-        ] : []),
-        [], // Blank row
-
-        // Gross Profit Results (if applicable)
-        ...(formData.casesSold > 0 && calculations.supplierGrossProfitDI !== null ? [ // Check for null explicitly
-            [`Gross Profit Analysis (@ ${formData.casesSold} cases)`],
-            ['Metric', 'DI Value (USD)', 'SS Value (USD)'],
-            ['Supplier GP', formatCurrency(calculations.supplierGrossProfitDI), formatCurrency(calculations.supplierGrossProfitSS)],
-            ['Distributor GP', formatCurrency(calculations.distributorGrossProfitDI), formatCurrency(calculations.distributorGrossProfitSS)],
-            [], // Blank row
-        ] : []),
-     ];
-
-     // Convert array of arrays to CSV string with proper escaping
-     const csvContent = csvRows.map(row => row.map(escapeCsvCell).join(',')).join('\n');
-
-     // Create Blob and Download Link
-     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-     const url = URL.createObjectURL(blob);
-     const link = document.createElement('a');
-     const safeWineName = (formData.wineName || 'calculation').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-     const fileName = `wine_pricing_${safeWineName}_${new Date().toISOString().split('T')[0]}.csv`;
-
-     link.setAttribute('href', url);
-     link.setAttribute('download', fileName);
-     link.style.visibility = 'hidden';
-     document.body.appendChild(link);
-     link.click();
-     document.body.removeChild(link);
-     URL.revokeObjectURL(url); // Clean up
-     console.log("Export generated:", fileName);
-
-  };
-
-  const handlePrintClick = () => {
-     if (isCalculating) {
-        alert("Please wait for calculations to finish before printing.");
-        return;
-     }
-      if (!calculations || Object.keys(calculations).length === 0) {
-        alert("No calculation results to print. Please enter inputs first.");
-        return;
-     }
-      console.log("Triggering browser print...");
-       window.print();
-  };
-
-  const handleResetClick = () => {
-       if (window.confirm("Are you sure you want to reset all fields to default?")) {
-          // Optionally clear specific cache items if desired
-          // localStorage.removeItem('cachedRateEURUSD');
-          // localStorage.removeItem('lastFetchTime');
-          const cachedRate = parseFloat(localStorage.getItem('cachedRateEURUSD')) || DEFAULT_FORM_DATA.exchangeRate;
-          setFormData({
-              ...DEFAULT_FORM_DATA,
-              exchangeRate: cachedRate, // Keep cached rate on reset
-              customExchangeRate: cachedRate,
-          });
-          setCalculations({});
-          setErrors({});
-          setShowAdvanced(false);
-          setShowGrossProfit(false);
-           // Re-check cache/fetch rate if resetting TO EUR
-           if(DEFAULT_FORM_DATA.currency === 'EUR') {
-                setTimeout(() => fetchCurrentExchangeRateWithCache(false), 50); // Trigger cache check
-           }
-      }
-  };
-
-  // --- Render ---
   return (
-    <div className="max-w-7xl mx-auto p-4 md:p-6 lg:p-8 bg-white rounded-lg shadow-lg print:shadow-none">
-       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 md:mb-8 border-b pb-4 print:hidden">
-        <h1 className="text-2xl font-bold text-gray-800 mb-3 md:mb-0">Wine Pricing Calculator</h1>
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-2">
-          {/* Updated Save Button */}
-          <button
-            title="Save Calculation Locally"
-            className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
-            onClick={handleSaveClick}
-            type="button"
-            disabled={isCalculating || !calculations || Object.keys(calculations).length === 0 || Object.values(errors).some(e => e)} // Disable if calculating, no results, or errors exist
-          >
-            <Save className="w-4 h-4 mr-1" /> Save
-          </button>
-          {/* Updated Export Button */}
-          <button
-            title="Export Results as CSV"
-            className="flex items-center px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 text-sm"
-            onClick={handleExportClick}
-            type="button"
-            disabled={isCalculating || !calculations || Object.keys(calculations).length === 0 || Object.values(errors).some(e => e)} // Disable if calculating, no results, or errors exist
-          >
-            <Download className="w-4 h-4 mr-1" /> Export
-          </button>
-          {/* Updated Print Button */}
-          <button
-            title="Print View"
-            className="flex items-center px-3 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 disabled:opacity-50 text-sm"
-            onClick={handlePrintClick}
-            type="button"
-            disabled={isCalculating || !calculations || Object.keys(calculations).length === 0 || Object.values(errors).some(e => e)} // Disable if calculating, no results, or errors exist
-          >
-            <Printer className="w-4 h-4 mr-1" /> Print
-          </button>
-          <button
-            title="Reset Fields"
-            className="flex items-center px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
-            onClick={handleResetClick}
-            type="button"
-          >
-            Reset
-          </button>
+    <div className="container mx-auto p-4 max-w-6xl font-sans">
+      <div className="flex justify-between items-center mb-4 flex-wrap">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Wine Pricing Calculator</h1>
+        <div className="flex space-x-2 mt-2 md:mt-0 print:hidden">
+          <button onClick={handleSave} title="Save Configuration (Not Implemented)" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled><Save className="w-5 h-5" /></button>
+          <button onClick={handleDownload} title="Download Results as CSV" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled={!hasCalculations}><Download className="w-5 h-5" /></button>
+          <button onClick={handlePrint} title="Print Page" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"><Printer className="w-5 h-5" /></button>
         </div>
       </div>
 
-        {/* Print Header */}
-        <div className="hidden print:block mb-4 border-b pb-2">
-             <h1 className="text-xl font-bold text-gray-800">Wine Pricing Calculation</h1>
-             {formData.wineName && <p className="text-lg font-semibold text-gray-700">{formData.wineName}</p>}
-             <p className="text-sm text-gray-500">Generated: {new Date().toLocaleString()}</p>
+       {/* Global Calculation Error Display */}
+        {errors.calculation && (
+          <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-800 rounded-md text-sm flex items-center">
+              <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0"/>
+              <span>Calculation Error: {errors.calculation}</span>
+          </div>
+        )}
+
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Input Panel */}
+        <div className="md:col-span-1">
+          <InputPanel
+            formData={formData}
+            setFormData={setFormData} // Pass setter if InputPanel modifies complex state? No, use handlers.
+            handleInputChange={handleInputChange}
+            handleCurrencyChange={handleCurrencyChange}
+            handleSelectChange={handleSelectChange}
+            handleCustomRateToggle={handleCustomRateToggle}
+            handleRefreshRate={handleRefreshRate}
+            isExchangeRateLoading={isExchangeRateLoading}
+            exchangeRateError={exchangeRateError}
+            showAdvanced={showAdvanced}
+            setShowAdvanced={setShowAdvanced}
+            errors={errors} // Pass all errors
+          />
         </div>
 
-       {/* Main Layout Grid */}
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
-        {/* Input Panel (Now defined above) */}
-        <div className="print:hidden"> {/* Hide input panel on print */}
-            <InputPanel
-                formData={formData}
-                handleInputChange={handleInputChange}
-                handleCurrencyChange={handleCurrencyChange}
-                handleSelectChange={handleSelectChange}
-                fetchCurrentExchangeRateWithCache={fetchCurrentExchangeRateWithCache}
-                isExchangeRateLoading={isExchangeRateLoading}
-                exchangeRateError={exchangeRateError}
-                showAdvanced={showAdvanced}
-                setShowAdvanced={setShowAdvanced}
-                errors={errors}
-            />
+        {/* Results Panel */}
+        <div className="md:col-span-2">
+            {isCalculating && !Object.keys(calculations).length && ( // Show loading only if no results yet
+                <div className="flex justify-center items-center h-64 bg-gray-50 rounded-lg shadow border border-gray-100">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+                </div>
+            )}
+
+          {(!isCalculating || Object.keys(calculations).length > 0) && Object.keys(calculations).length === 0 && !errors.calculation && !errors.costInput && !errors.targetSrp && ( // Show prompt if not loading, no results, and no critical errors
+              <div className="flex flex-col justify-center items-center h-64 bg-gray-50 rounded-lg shadow border border-gray-100 p-4 text-center">
+                 <p className="text-gray-500">Enter cost or target SRP to see calculations.</p>
+                   {(errors.exchangeRate || errors.customExchangeRate) && formData.currency === 'EUR' && (
+                       <p className="text-yellow-700 text-sm mt-2">Note: Using default exchange rate due to input error.</p>
+                   )}
+              </div>
+          )}
+
+          {/* Display Results or Persistent Errors */}
+          {(hasCalculations || errors.calculation || errors.costInput || errors.targetSrp) && !isCalculating && ( // Show results area if calc done OR if there are persistent errors preventing calc
+            <div className="bg-white p-4 md:p-6 rounded-lg shadow border border-gray-100">
+              <h3 className="text-lg font-semibold mb-4 text-gray-800">Calculation Results</h3>
+              {!hasCalculations && (errors.calculation || errors.costInput || errors.targetSrp) && (
+                  <div className="text-center text-gray-500 p-4 border rounded-md bg-gray-50">
+                      Please correct the input errors to see results.
+                  </div>
+              )}
+              {hasCalculations && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {/* DI Pricing Column */}
+                <div>
+                  <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">Direct Import Pricing</h4>
+                  <div className="space-y-1 text-sm">
+                     <p className="flex justify-between"><span>Base Case Cost (USD):</span> <span>{formatCurrency(calculations.caseCostUSD)}</span></p>
+                     <p className="flex justify-between"><span>Tariff ({formData.tariff}%):</span> <span>{formatCurrency(calculations.tariffAmountUSD)}</span></p>
+                     <p className="flex justify-between"><span>DI Logistics:</span> <span>{formatCurrency(formData.diLogistics)}</span></p>
+                     <p className="flex justify-between font-semibold"><span>Supp. Laid-In DI:</span> <span>{formatCurrency(calculations.supplierLaidInCostDI_USD)}</span></p>
+                     <p className="flex justify-between text-blue-700"><span>Supp. FOB DI ({formData.supplierMargin}%):</span> <span>{formatCurrency(calculations.supplierFobDI_USD)}</span></p>
+                     <p className="flex justify-between"><span>Dist. Laid-In DI:</span> <span>{formatCurrency(calculations.distributorLaidInCostDI_USD)}</span></p>
+                     <p className="flex justify-between text-blue-700"><span>Dist. Whsl Case DI ({formData.distributorMargin}%):</span> <span>{formatCurrency(calculations.distCaseWholesaleDI_USD)}</span></p>
+                     <p className="flex justify-between text-blue-700"><span>Dist. Whsl Bottle DI:</span> <span>{formatCurrency(calculations.distBottleWholesaleDI_USD)}</span></p>
+                     <p className="flex justify-between text-green-700"><span>Dist. BTG Bottle DI ({formData.distributorBtgMargin}%):</span> <span>{formatCurrency(calculations.distBtgPriceDI_USD)}</span></p>
+                     <p className="flex justify-between font-bold text-xl mt-2"><span>SRP (DI, {formData.retailerMargin}%):</span> <span>{formatCurrency(calculations.srpDi_USD)}</span></p>
+                      {formData.roundSrp && calculations.originalSrpDi_USD && calculations.srpDi_USD !== calculations.originalSrpDi_USD && (
+                          <p className="text-xs text-gray-500 text-right">(Rounded from {formatCurrency(calculations.originalSrpDi_USD)})</p>
+                      )}
+                  </div>
+                </div>
+                {/* SS Pricing Column */}
+                 <div>
+                    <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">Stateside Inventory Pricing</h4>
+                   <div className="space-y-1 text-sm">
+                       <p className="flex justify-between"><span>Supp. Base Cost SS:</span> <span>{formatCurrency(calculations.supplierLaidInCostSS_USD)}</span></p>
+                       <p className="flex justify-between text-blue-700"><span>Supp. FOB SS ({formData.supplierMargin}%):</span> <span>{formatCurrency(calculations.supplierFobSS_USD)}</span></p>
+                       <p className="flex justify-between"><span>Stateside Logistics:</span> <span className="text-red-600">(+{formatCurrency(formData.statesideLogistics)})</span></p>
+                       <p className="flex justify-between font-semibold"><span>Dist. Laid-In SS:</span> <span>{formatCurrency(calculations.distributorLaidInCostSS_USD)}</span></p>
+                       <p className="flex justify-between text-blue-700"><span>Dist. Whsl Case SS ({formData.distributorMargin}%):</span> <span>{formatCurrency(calculations.distCaseWholesaleSS_USD)}</span></p>
+                       <p className="flex justify-between text-blue-700"><span>Dist. Whsl Bottle SS:</span> <span>{formatCurrency(calculations.distBottleWholesaleSS_USD)}</span></p>
+                       <p className="flex justify-between text-green-700"><span>Dist. BTG Bottle SS ({formData.distributorBtgMargin}%):</span> <span>{formatCurrency(calculations.distBtgPriceSS_USD)}</span></p>
+                       <p className="flex justify-between font-bold text-xl mt-2"><span>SRP (SS, {formData.retailerMargin}%):</span> <span>{formatCurrency(calculations.srpSs_USD)}</span></p>
+                         {formData.roundSrp && calculations.originalSrpSs_USD && calculations.srpSs_USD !== calculations.originalSrpSs_USD && (
+                             <p className="text-xs text-gray-500 text-right">(Rounded from {formatCurrency(calculations.originalSrpSs_USD)})</p>
+                         )}
+                   </div>
+                 </div>
+              </div>
+               )}
+
+              {/* Gross Profit Section (conditionally rendered) */}
+              {hasCalculations && formData.casesSold > 0 && (
+                    <div className="mt-6 pt-4 border-t">
+                         <button type="button" onClick={() => setShowGrossProfit(!showGrossProfit)} className="flex items-center text-sm text-blue-600 hover:text-blue-800 focus:outline-none mb-2">
+                            {showGrossProfit ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />} Gross Profit Analysis ({formData.casesSold} Cases)
+                         </button>
+                         {showGrossProfit && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm bg-gray-50 p-3 rounded border">
+                                {/* DI GP */}
+                                <div>
+                                    <h5 className="font-medium text-gray-600 mb-1">Direct Import GP</h5>
+                                    <p className="flex justify-between"><span>Supplier GP DI:</span> <span className="font-semibold">{formatCurrency(calculations.supplierGrossProfitDI)}</span></p>
+                                    <p className="flex justify-between"><span>Distributor GP DI:</span> <span className="font-semibold">{formatCurrency(calculations.distributorGrossProfitDI)}</span></p>
+                                </div>
+                                {/* SS GP */}
+                                <div>
+                                    <h5 className="font-medium text-gray-600 mb-1">Stateside Inventory GP</h5>
+                                    <p className="flex justify-between"><span>Supplier GP SS:</span> <span className="font-semibold">{formatCurrency(calculations.supplierGrossProfitSS)}</span></p>
+                                    <p className="flex justify-between"><span>Distributor GP SS:</span> <span className="font-semibold">{formatCurrency(calculations.distributorGrossProfitSS)}</span></p>
+                                </div>
+                            </div>
+                         )}
+                    </div>
+              )}
+            </div>
+            )}
         </div>
-
-         {/* Results Panel Area */}
-         {/* This section takes up full width on print */}
-          <div className="md:col-span-2 print:col-span-3">
-              {/* Status/Error Display */}
-              {isCalculating && <div className="text-center text-blue-600 mb-4 p-3 bg-blue-50 rounded border border-blue-200 print:hidden">Calculating...</div>}
-              {errors.calculation && !isCalculating && (
-                  <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md text-center flex items-center justify-center"> <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0"/> <span>{errors.calculation}</span> </div>
-              )}
-              {exchangeRateError && !isExchangeRateLoading && formData.currency === 'EUR' && (
-                  <div className="mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-md text-center flex items-center justify-center print:hidden"> <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0"/> <span>Exchange Rate Error: {exchangeRateError}</span> </div>
-              )}
-
-              {/* Results Display */}
-              {calculations && Object.keys(calculations).length > 0 && !isCalculating && !errors.calculation && (
-                  <>
-                  {/* Derived Cost Display (Reverse Mode Only) */}
-                  {formData.calculationMode === 'reverse' && calculations.baseBottleCostOriginal !== null && (
-                      <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md text-center shadow-sm">
-                      <p className="text-sm text-green-800">
-                          To achieve target SRP of <span className="font-semibold">{formatCurrency(formData.targetSrp, 'USD')}</span>,
-                          required supplier cost is approx: <br className="sm:hidden"/>
-                          <span className="font-bold text-base">{formatCurrency(calculations.baseBottleCostOriginal, formData.currency, 4)}</span> / btl OR&nbsp;
-                          <span className="font-bold text-base">{formatCurrency(calculations.baseCasePriceOriginal, formData.currency, 4)}</span> / case
-                          <span className="text-xs"> ({formData.currency})</span>
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">Equivalent to {formatCurrency(calculations.caseCostUSD, 'USD')} / case (USD Base Cost)</p>
-                      </div>
-                  )}
-
-                  {/* DI and SS Pricing Cards */}
-                  {/* Use print:grid-cols-2 to force two columns on print */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-2">
-                      {/* Direct Import Card */}
-                       {/* Added print styles: shadow-none, border, border-gray-300 */}
-                      <div className="bg-white p-4 md:p-6 rounded-lg shadow border border-gray-100 print:shadow-none print:border print:border-gray-300">
-                          <h3 className="text-lg font-semibold mb-4 text-gray-800">Direct Import Pricing</h3>
-                          <div className="space-y-2 text-sm">
-                              <div className="flex justify-between"><span className="text-gray-500">Base Case Cost (USD):</span> <span className="font-medium">{formatCurrency(calculations.caseCostUSD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-500">Tariff ({formData.tariff}%):</span> <span className="font-medium">{formatCurrency(calculations.tariffAmountUSD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-500">DI Logistics:</span> <span className="font-medium">{formatCurrency(formData.diLogistics)}</span></div>
-                              <div className="flex justify-between border-t pt-1 mt-1"><span className="text-gray-600">Supp. Laid-In DI:</span> <span className="font-medium">{formatCurrency(calculations.supplierLaidInCostDI_USD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Supp. FOB DI ({formData.supplierMargin}%):</span> <span className="font-medium">{formatCurrency(calculations.supplierFobDI_USD)}</span></div>
-                              <div className="flex justify-between border-t pt-1 mt-1"><span className="text-gray-600">Dist. Laid-In DI:</span> <span className="font-medium">{formatCurrency(calculations.distributorLaidInCostDI_USD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Dist. Whsl Case DI ({formData.distributorMargin}%):</span> <span className="font-medium">{formatCurrency(calculations.distCaseWholesaleDI_USD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Dist. Whsl Bottle DI:</span> <span className="font-medium">{formatCurrency(calculations.distBottleWholesaleDI_USD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Dist. BTG Bottle DI ({formData.distributorBtgMargin}%):</span> <span className="font-medium">{formatCurrency(calculations.distBtgPriceDI_USD)}</span></div>
-                              <div className="flex justify-between border-t pt-2 mt-1"><span className="text-blue-700 font-semibold">SRP (DI, {formData.retailerMargin}%):</span> <span className="font-bold text-lg text-blue-700">{formatCurrency(calculations.srpDi_USD)}</span></div>
-                          </div>
-                          {/* Hide rounding note on print */}
-                          {formData.roundSrp && calculations.originalDistBottleWholesaleDI_USD !== null && Math.abs(calculations.distCaseWholesaleDI_USD - calculations.originalDistCaseWholesaleDI_USD) > 0.001 && (
-                              <div className="text-xs text-gray-500 mt-2 italic border-t pt-1 print:hidden"> (Adj. from Whsl: {formatCurrency(calculations.originalDistBottleWholesaleDI_USD)} /btl) </div>
-                          )}
-                      </div>
-                      {/* Stateside Card */}
-                       {/* Added print styles: shadow-none, border, border-gray-300 */}
-                      <div className="bg-white p-4 md:p-6 rounded-lg shadow border border-gray-100 print:shadow-none print:border print:border-gray-300">
-                          <h3 className="text-lg font-semibold mb-4 text-gray-800">Stateside Inventory Pricing</h3>
-                          <div className="space-y-2 text-sm">
-                              <div className="flex justify-between"><span className="text-gray-500">Base Case Cost (USD):</span> <span className="font-medium">{formatCurrency(calculations.caseCostUSD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-500">Tariff ({formData.tariff}%):</span> <span className="font-medium">{formatCurrency(calculations.tariffAmountUSD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-500">DI Logistics:</span> <span className="font-medium">{formatCurrency(formData.diLogistics)}</span></div>
-                              <div className="flex justify-between border-t pt-1 mt-1"><span className="text-gray-600">Supp. Base Cost SS:</span> <span className="font-medium">{formatCurrency(calculations.supplierLaidInCostSS_USD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Supp. FOB SS ({formData.supplierMargin}%):</span> <span className="font-medium">{formatCurrency(calculations.supplierFobSS_USD)}</span></div>
-                              <div className="flex justify-between border-t pt-1 mt-1"><span className="text-gray-600">Dist. Laid-In SS:</span> <span className="font-medium">{formatCurrency(calculations.distributorLaidInCostSS_USD)}</span></div>
-                              <div className="text-xs text-gray-500 text-right italic">(+ SS Logistics {formatCurrency(formData.statesideLogistics)})</div>
-                              <div className="flex justify-between"><span className="text-gray-600">Dist. Whsl Case SS ({formData.distributorMargin}%):</span> <span className="font-medium">{formatCurrency(calculations.distCaseWholesaleSS_USD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Dist. Whsl Bottle SS:</span> <span className="font-medium">{formatCurrency(calculations.distBottleWholesaleSS_USD)}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Dist. BTG Bottle SS ({formData.distributorBtgMargin}%):</span> <span className="font-medium">{formatCurrency(calculations.distBtgPriceSS_USD)}</span></div>
-                              <div className="flex justify-between border-t pt-2 mt-1"><span className="text-blue-700 font-semibold">SRP (SS, {formData.retailerMargin}%):</span> <span className="font-bold text-lg text-blue-700">{formatCurrency(calculations.srpSs_USD)}</span></div>
-                          </div>
-                          {/* Hide rounding note on print */}
-                          {formData.roundSrp && calculations.originalDistBottleWholesaleSS_USD !== null && Math.abs(calculations.distCaseWholesaleSS_USD - calculations.originalDistCaseWholesaleSS_USD) > 0.001 && (
-                              <div className="text-xs text-gray-500 mt-2 italic border-t pt-1 print:hidden"> (Adj. from Whsl: {formatCurrency(calculations.originalDistBottleWholesaleSS_USD)} /btl) </div>
-                          )}
-                           {/* Hide reverse mode match note on print */}
-                           {/* Adjusted tolerance slightly for matching */}
-                          {formData.calculationMode === 'reverse' && Math.abs(calculations.srpSs_USD - parseFloat(formData.targetSrp)) <= (formData.roundSrp ? 1.00 : 0.02) && (
-                              <div className="text-xs text-green-600 text-right italic mt-1 font-medium print:hidden">(Matches Target SRP)</div>
-                          )}
-                      </div>
-                  </div>
-
-                  {/* Gross Profit Section */}
-                   {/* Button hidden on print */}
-                  <div className="mt-6 print:hidden">
-                      <button
-                      className="flex items-center text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                      onClick={() => setShowGrossProfit(!showGrossProfit)}
-                      type="button"
-                      disabled={!formData.casesSold || formData.casesSold <= 0 || !calculations.supplierGrossProfitDI}
-                      >
-                      {showGrossProfit ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
-                      {showGrossProfit ? 'Hide Gross Profit' : 'Show Gross Profit'}
-                          {(!formData.casesSold || formData.casesSold <= 0) && <span className="text-xs ml-2 text-gray-400">(Enter Cases Sold {'>'} 0)</span>}
-                      </button>
-                  </div>
-                   {/* GP section: show if toggled OR if printing */}
-                   {/* Added print styles: shadow-none, border-none, mt-4, p-0 */}
-                   {/* Check calculations.supplierGrossProfitDI for existence before showing */}
-                  {(showGrossProfit || (typeof window !== 'undefined' && window.matchMedia('print').matches)) && formData.casesSold > 0 && calculations.supplierGrossProfitDI !== null && (
-                      <div className="bg-white p-4 md:p-6 rounded-lg shadow border border-gray-100 mt-2 print:shadow-none print:border-none print:mt-4 print:p-0">
-                      <h3 className="text-lg font-semibold mb-4 text-gray-800">Gross Profit Analysis</h3>
-                      <p className="text-sm text-gray-600 mb-3">Based on <span className="font-medium">{formData.casesSold}</span> cases sold.</p>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
-                              <div> <h4 className="font-medium mb-2 text-gray-700">Direct Import (DI)</h4> <div className="space-y-1"> <div className="flex justify-between"><span className="text-gray-500">Supplier GP:</span> <span className="font-medium">{formatCurrency(calculations.supplierGrossProfitDI)}</span></div> <div className="flex justify-between"><span className="text-gray-500">Distributor GP:</span> <span className="font-medium">{formatCurrency(calculations.distributorGrossProfitDI)}</span></div> </div> </div>
-                              <div> <h4 className="font-medium mb-2 text-gray-700">Stateside (SS)</h4> <div className="space-y-1"> <div className="flex justify-between"><span className="text-gray-500">Supplier GP:</span> <span className="font-medium">{formatCurrency(calculations.supplierGrossProfitSS)}</span></div> <div className="flex justify-between"><span className="text-gray-500">Distributor GP:</span> <span className="font-medium">{formatCurrency(calculations.distributorGrossProfitSS)}</span></div> </div> </div>
-                      </div>
-                      </div>
-                  )}
-                  </>
-              )}
-
-              {/* Placeholder */}
-               {/* Hidden on print */}
-              {!isCalculating && (!calculations || Object.keys(calculations).length === 0) && !errors.calculation && (
-                  <div className="text-center text-gray-500 mt-10 p-6 bg-gray-50 rounded-lg print:hidden">
-                      <p>Enter parameters to see the pricing breakdown.</p>
-                      <p className="text-xs mt-1">{formData.calculationMode === 'forward' ? 'Requires Bottle/Case Cost.' : 'Requires Target SRP.'}</p>
-                  </div>
-              )}
-
-          </div> {/* End Results Panel Area */}
-
-      </div> {/* End Main Grid */}
-    </div> // End Main Container
+      </div>
+    </div>
   );
 };
 
