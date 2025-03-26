@@ -29,7 +29,7 @@ const DEFAULT_FORM_DATA = {
   statesideLogistics: 10,
   supplierMargin: 30,
   distributorMargin: 30,
-  distributorBtgMargin: 27,
+  distributorBtgMargin: 27, // Default BTG Margin
   retailerMargin: 33,
   roundSrp: true,
   casesSold: '',
@@ -63,10 +63,7 @@ const roundToNearest99 = (value) => {
     return num - whole < 0.40 ? Math.max(0, whole - 1 + 0.99) : whole + 0.99;
 };
 
-// --- InputPanel Component ---
-// (This component's code remains the same as the previous complete version,
-// it correctly uses formData, errors, and handlers passed down as props.
-// No changes needed within InputPanel itself for the API switch.)
+// --- InputPanel Component (No changes needed here based on requirements) ---
 const InputPanel = ({
     formData, setFormData, handleInputChange, handleCurrencyChange, handleSelectChange,
     handleCustomRateToggle, handleRefreshRate, // Pass new handlers
@@ -125,33 +122,29 @@ const InputPanel = ({
                 )}
                 {/* Target SRP Input (Reverse Mode) */}
                 {formData.calculationMode === 'reverse' && (
-                   <div className="p-3 border rounded-md bg-gray-50">
-                     <label htmlFor="targetSrp" className="block text-sm font-medium text-gray-700">Target SRP (USD)</label>
-                     <input type="number" id="targetSrp" name="targetSrp" value={formData.targetSrp} onChange={handleInputChange} placeholder="e.g., 19.99" min="0" step="0.01" className={`mt-1 block w-full px-3 py-2 border ${errors.targetSrp ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}/>
-                     {errors.targetSrp && <p className="mt-1 text-xs text-red-600">{errors.targetSrp}</p>}
-                  </div>
+                     <div className="p-3 border rounded-md bg-gray-50">
+                       <label htmlFor="targetSrp" className="block text-sm font-medium text-gray-700">Target SRP (USD)</label>
+                       <input type="number" id="targetSrp" name="targetSrp" value={formData.targetSrp} onChange={handleInputChange} placeholder="e.g., 19.99" min="0" step="0.01" className={`mt-1 block w-full px-3 py-2 border ${errors.targetSrp ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}/>
+                       {errors.targetSrp && <p className="mt-1 text-xs text-red-600">{errors.targetSrp}</p>}
+                     </div>
                 )}
-              {/* Currency Selection */}
-        <div>
-            <label htmlFor="currency" className="block text-sm font-medium text-gray-700">Supplier Cost Currency</label>
-            <select
-                id="currency"
-                name="currency"
-                value={formData.currency}
-                onChange={handleCurrencyChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
-                // Disable if in reverse mode? Optional, might prevent confusion.
-                // disabled={formData.calculationMode === 'reverse'}
-            >
-                {/* --- FIX: Use .map over the CURRENCIES constant --- */}
-                {CURRENCIES.map((currencyCode) => (
-                  <option key={currencyCode} value={currencyCode}>
-                    {currencyCode}
-                  </option>
-                ))}
-                {/* --- End Fix --- */}
-            </select>
-        </div>
+               {/* Currency Selection */}
+                <div>
+                    <label htmlFor="currency" className="block text-sm font-medium text-gray-700">Supplier Cost Currency</label>
+                    <select
+                        id="currency"
+                        name="currency"
+                        value={formData.currency}
+                        onChange={handleCurrencyChange}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
+                    >
+                        {CURRENCIES.map((currencyCode) => (
+                          <option key={currencyCode} value={currencyCode}>
+                            {currencyCode}
+                          </option>
+                        ))}
+                    </select>
+                </div>
                 {/* Case Pack & Bottle Size */}
                 <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -200,7 +193,7 @@ const InputPanel = ({
                        {errors.exchangeRate && !formData.useCustomExchangeRate && <p className="mt-1 text-xs text-red-600">{errors.exchangeRate}</p>}
                        {errors.customExchangeRate && formData.useCustomExchangeRate && <p className="mt-1 text-xs text-red-600">{errors.customExchangeRate}</p>}
                     </div>
-                    {/* Buffer Input - No changes needed here */}
+                    {/* Buffer Input */}
                     <div className="flex items-center space-x-2 mt-1">
                       <label htmlFor="exchangeBuffer" className="text-sm text-gray-500 w-24 whitespace-nowrap">Rate Buffer (%):</label>
                       <input type="number" id="exchangeBuffer" name="exchangeBuffer" value={formData.exchangeBuffer} onChange={handleInputChange} min="0" max="100" step="0.1" className={`block w-20 px-2 py-1 border ${errors.exchangeBuffer ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`} placeholder="e.g., 5" aria-label="Exchange Rate Buffer"/>
@@ -211,13 +204,13 @@ const InputPanel = ({
                     </div>
                   </div>
                 )}
-                {/* Advanced Options Toggle - No changes needed */}
+                {/* Advanced Options Toggle */}
                  <div className="mt-4">
                      <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center text-sm text-blue-600 hover:text-blue-800 focus:outline-none">
                          {showAdvanced ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />} {showAdvanced ? 'Hide Advanced Options' : 'Show Advanced Options'}
                      </button>
                  </div>
-                {/* Advanced Options Inputs - No changes needed */}
+                {/* Advanced Options Inputs */}
                 {showAdvanced && (
                     <div className="p-3 border rounded-md bg-gray-50 space-y-3 mt-2">
                         <h4 className="text-sm font-medium text-gray-600 mb-2">Costs & Margins</h4>
@@ -269,28 +262,27 @@ const InputPanel = ({
 
 // --- Main Calculator Component ---
 const WinePricingCalculator = () => {
-  // State Initialization
-  const [formData, setFormData] = useState(() => {
-    // Use OER specific cache keys
-    const cachedRate = localStorage.getItem(CACHE_KEY_OER);
-    const rate = cachedRate ? parseFloat(cachedRate).toFixed(5) : DEFAULT_EXCHANGE_RATE;
-    return {
-      ...DEFAULT_FORM_DATA,
-      exchangeRate: rate,
-      customExchangeRate: rate,
-    };
-  });
-  const [calculations, setCalculations] = useState({});
-  const [errors, setErrors] = useState({});
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [isExchangeRateLoading, setIsExchangeRateLoading] = useState(false);
-  const [exchangeRateError, setExchangeRateError] = useState(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showGrossProfit, setShowGrossProfit] = useState(false);
+ // State Initialization
+ const [formData, setFormData] = useState(() => {
+   // Use OER specific cache keys
+   const cachedRate = localStorage.getItem(CACHE_KEY_OER);
+   const rate = cachedRate ? parseFloat(cachedRate).toFixed(5) : DEFAULT_EXCHANGE_RATE;
+   return {
+     ...DEFAULT_FORM_DATA,
+     exchangeRate: rate,
+     customExchangeRate: rate,
+   };
+ });
+ const [calculations, setCalculations] = useState({});
+ const [errors, setErrors] = useState({});
+ const [isCalculating, setIsCalculating] = useState(false);
+ const [isExchangeRateLoading, setIsExchangeRateLoading] = useState(false);
+ const [exchangeRateError, setExchangeRateError] = useState(null);
+ const [showAdvanced, setShowAdvanced] = useState(false);
+ const [showGrossProfit, setShowGrossProfit] = useState(false);
 
-  // --- API Key (Using OpenExchangeRates App ID) ---
-  const oerAppId = process.env.REACT_APP_OER_APP_ID;
-  console.log('>>> Loaded App ID:', oerAppId); // <-- ADD THIS LINE
+ // --- API Key (Using OpenExchangeRates App ID) ---
+ const oerAppId = process.env.REACT_APP_OER_APP_ID || 'YOUR_OER_APP_ID'; // Fallback for local dev if .env is not set
 
 // --- Fetching Logic (Open Exchange Rates - Adapted for Free Plan / USD Base) ---
 const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
@@ -323,8 +315,8 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
     setIsExchangeRateLoading(true);
     setExchangeRateError(null);
 
-    if (!oerAppId) {
-      console.error("OpenExchangeRates App ID is missing.");
+    if (!oerAppId || oerAppId === 'YOUR_OER_APP_ID') {
+      console.error("OpenExchangeRates App ID is missing or using placeholder.");
       setExchangeRateError("Config Error: App ID missing.");
       setIsExchangeRateLoading(false);
       const fallbackRate = cachedRateString ? parseFloat(cachedRateString).toFixed(5) : DEFAULT_EXCHANGE_RATE;
@@ -383,19 +375,18 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
     } finally {
       setIsExchangeRateLoading(false);
     }
-    // Updated dependency array from previous step
-  }, [oerAppId, formData.currency, formData.useCustomExchangeRate]);
+ }, [oerAppId, formData.currency, formData.useCustomExchangeRate]);
 
-  // --- Calculation Logic (Unchanged - uses formData.exchangeRate which is updated by fetch) ---
-  const calculatePricing = useCallback(() => {
+ // --- Calculation Logic ---
+ const calculatePricing = useCallback(() => {
     console.log("Calculating pricing with formData:", formData);
     setIsCalculating(true);
     setErrors(prev => ({ // Clear only calculation-related errors
-       calculation: null,
-       costInput: prev.calculationMode === 'forward' && (!parseFloat(prev.bottleCost) && !parseFloat(prev.casePrice)) ? prev.costInput : null,
-       targetSrp: prev.calculationMode === 'reverse' && !parseFloat(prev.targetSrp) ? prev.targetSrp : null,
-       exchangeRate: prev.currency === 'EUR' && !prev.useCustomExchangeRate && (isNaN(parseFloat(prev.exchangeRate)) || parseFloat(prev.exchangeRate) <= 0) ? prev.exchangeRate : null,
-       customExchangeRate: prev.currency === 'EUR' && prev.useCustomExchangeRate && (isNaN(parseFloat(prev.customExchangeRate)) || parseFloat(prev.customExchangeRate) <= 0) ? prev.customExchangeRate : null,
+        calculation: null,
+        costInput: prev.calculationMode === 'forward' && (!parseFloat(prev.bottleCost) && !parseFloat(prev.casePrice)) ? prev.costInput : null,
+        targetSrp: prev.calculationMode === 'reverse' && !parseFloat(prev.targetSrp) ? prev.targetSrp : null,
+        exchangeRate: prev.currency === 'EUR' && !prev.useCustomExchangeRate && (isNaN(parseFloat(prev.exchangeRate)) || parseFloat(prev.exchangeRate) <= 0) ? prev.exchangeRate : null,
+        customExchangeRate: prev.currency === 'EUR' && prev.useCustomExchangeRate && (isNaN(parseFloat(prev.customExchangeRate)) || parseFloat(prev.customExchangeRate) <= 0) ? prev.customExchangeRate : null,
     }));
 
     // --- Input Parsing and Validation ---
@@ -408,7 +399,7 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
     const statesideLogistics = parseFloat(formData.statesideLogistics) || 0;
     const supplierMarginPercent = parseFloat(formData.supplierMargin) || 0;
     const distributorMarginPercent = parseFloat(formData.distributorMargin) || 0;
-    const distBtgMarginPercent = parseFloat(formData.distributorBtgMargin) || 0;
+    const distBtgMarginPercent = parseFloat(formData.distributorBtgMargin) || 0; // BTG Margin %
     const retailerMarginPercent = parseFloat(formData.retailerMargin) || 0;
     const casesSold = parseInt(formData.casesSold, 10) || 0;
     const targetSrp = parseFloat(formData.targetSrp) || 0;
@@ -438,10 +429,10 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
 
      // Final check on effective rate before proceeding
      if (isNaN(effectiveExchangeRate) || effectiveExchangeRate <= 0) {
-          setErrors(prev => ({ ...prev, calculation: "Invalid effective exchange rate for calculation." }));
-          setIsCalculating(false);
-          setCalculations({});
-          return;
+         setErrors(prev => ({ ...prev, calculation: "Invalid effective exchange rate for calculation." }));
+         setIsCalculating(false);
+         setCalculations({});
+         return;
      }
 
     let baseBottleCostOriginal = null; // Supplier cost in original currency (for reverse calc)
@@ -480,12 +471,13 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
 
         // Check Margins Immediately
         const marginCheck = (margin, name) => {
-            if (isNaN(margin) || margin < 0 || margin >= 100) throw new Error(`Invalid ${name} (${margin}%). Must be 0-99.99.`);
-            return margin / 100;
+             if (isNaN(margin) || margin < 0 || margin >= 100) throw new Error(`Invalid ${name} (${margin}%). Must be 0-99.99.`);
+             return margin / 100;
         };
         const retailerMarginFrac = marginCheck(retailerMarginPercent, "Retailer Margin");
         const distributorMarginFrac = marginCheck(distributorMarginPercent, "Distributor Margin");
         const supplierMarginFrac = marginCheck(supplierMarginPercent, "Supplier Margin");
+        // NOTE: BTG Margin is not used in the reverse SRP -> Cost calculation path
         const tariffFrac = tariffPercent / 100;
         if (isNaN(tariffFrac) || tariffFrac < 0) throw new Error("Invalid Tariff percentage.");
 
@@ -518,238 +510,278 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
 
         // Update non-editable cost fields in UI state for reverse mode display
          setFormData(prev => ({
-            ...prev,
-             bottleCost: baseBottleCostOriginal.toFixed(4), // Display calculated original cost
-             casePrice: baseCasePriceOriginal.toFixed(2)
-        }));
+             ...prev,
+              bottleCost: baseBottleCostOriginal.toFixed(4), // Display calculated original cost
+              casePrice: baseCasePriceOriginal.toFixed(2)
+         }));
       }
 
-        // --- Common Calculations (Forward & Post-Reverse) ---
-        if (isNaN(caseCostUSD) || caseCostUSD <= 0) throw new Error("Base USD cost is invalid or non-positive.");
+       // --- Common Calculations (Forward & Post-Reverse) ---
+       if (isNaN(caseCostUSD) || caseCostUSD <= 0) throw new Error("Base USD cost is invalid or non-positive.");
 
-         const marginCheck = (margin, name) => {
+        const marginCheck = (margin, name) => {
              if (isNaN(margin) || margin >= 100 || margin < 0) throw new Error(`Invalid ${name} (${margin}%). Must be 0-99.99.`);
              return margin / 100;
          };
 
-        // Re-validate margins here as they might be changed between mode switches
-        const supplierMargin = marginCheck(supplierMarginPercent, "Supplier Margin");
-        const distributorMargin = marginCheck(distributorMarginPercent, "Distributor Margin");
-        const distBtgMargin = marginCheck(distBtgMarginPercent, "Distributor BTG Margin");
-        const retailerMargin = marginCheck(retailerMarginPercent, "Retailer Margin");
-        const tariffFrac = tariffPercent / 100;
-        if (isNaN(tariffFrac) || tariffFrac < 0) throw new Error("Invalid Tariff percentage.");
+       // Re-validate margins here as they might be changed between mode switches
+       const supplierMargin = marginCheck(supplierMarginPercent, "Supplier Margin");
+       const distributorMargin = marginCheck(distributorMarginPercent, "Distributor Margin");
+       const distBtgMargin = marginCheck(distBtgMarginPercent, "Distributor BTG Margin"); // Get BTG margin fraction
+       const retailerMargin = marginCheck(retailerMarginPercent, "Retailer Margin");
+       const tariffFrac = tariffPercent / 100;
+       if (isNaN(tariffFrac) || tariffFrac < 0) throw new Error("Invalid Tariff percentage.");
 
 
-        const tariffAmountUSD = caseCostUSD * tariffFrac;
-        const supplierLaidInCostDI_USD = caseCostUSD + tariffAmountUSD + diLogistics;
-         if(supplierLaidInCostDI_USD <= 0) throw new Error("Supplier DI Laid-In Cost is non-positive.");
+       // --- DI Calculations ---
+       const tariffAmountUSD = caseCostUSD * tariffFrac;
+       const supplierLaidInCostDI_USD = caseCostUSD + tariffAmountUSD + diLogistics;
+        if(supplierLaidInCostDI_USD <= 0) throw new Error("Supplier DI Laid-In Cost is non-positive.");
 
-        const supplierFobDI_USD = supplierLaidInCostDI_USD / (1 - supplierMargin);
-        const supplierLaidInCostSS_USD = supplierLaidInCostDI_USD; // Base cost before SS logistics is the same
-        const supplierFobSS_USD = supplierLaidInCostSS_USD / (1 - supplierMargin); // Apply same margin
+       const supplierFobDI_USD = supplierLaidInCostDI_USD / (1 - supplierMargin);
+       const distributorLaidInCostDI_USD = supplierFobDI_USD; // Dist cost starts where Supp FOB ends
 
-        const distributorLaidInCostDI_USD = supplierFobDI_USD; // Dist cost starts where Supp FOB ends
-        const distCaseWholesaleDI_USD = distributorLaidInCostDI_USD / (1 - distributorMargin);
-        const distBottleWholesaleDI_USD = distCaseWholesaleDI_USD / casePack;
-        const distBtgPriceDI_USD = distBottleWholesaleDI_USD / (1 - distBtgMargin); // Use bottle wholesale
+       // Regular Wholesale DI
+       const distCaseWholesaleDI_USD = distributorLaidInCostDI_USD / (1 - distributorMargin);
+       const distBottleWholesaleDI_USD = distCaseWholesaleDI_USD / casePack;
 
-        const distributorLaidInCostSS_USD = supplierFobSS_USD + statesideLogistics; // Add SS logistics
-         if(distributorLaidInCostSS_USD <= 0) throw new Error("Distributor SS Laid-In Cost is non-positive.");
-        const distCaseWholesaleSS_USD = distributorLaidInCostSS_USD / (1 - distributorMargin);
-        const distBottleWholesaleSS_USD = distCaseWholesaleSS_USD / casePack;
-        const distBtgPriceSS_USD = distBottleWholesaleSS_USD / (1 - distBtgMargin); // Use bottle wholesale
+       // *** BTG Calculation FIX (DI) ***
+       // Base BTG price on Distributor Laid-In Cost per bottle
+       const distLaidInCostDI_Bottle_USD = distributorLaidInCostDI_USD / casePack;
+       if (isNaN(distLaidInCostDI_Bottle_USD) || distLaidInCostDI_Bottle_USD < 0) throw new Error("Invalid DI Laid-In Cost per bottle.");
+       const distBtgPriceDI_USD = distLaidInCostDI_Bottle_USD / (1 - distBtgMargin); // Apply BTG margin to bottle laid-in cost
 
 
-        // Check for division-by-zero in intermediate calculations (margins = 100%)
-         if (![supplierFobDI_USD, supplierFobSS_USD, distCaseWholesaleDI_USD, distCaseWholesaleSS_USD, distBtgPriceDI_USD, distBtgPriceSS_USD].every(val => isFinite(val) && val >= 0)) {
-              throw new Error("Calculation resulted in non-finite or negative intermediate price due to margin(s).");
-         }
+       // --- SS Calculations ---
+       const supplierLaidInCostSS_USD = supplierLaidInCostDI_USD; // Base cost before SS logistics is the same
+       const supplierFobSS_USD = supplierLaidInCostSS_USD / (1 - supplierMargin); // Apply same margin
+       const distributorLaidInCostSS_USD = supplierFobSS_USD + statesideLogistics; // Add SS logistics
+        if(distributorLaidInCostSS_USD <= 0) throw new Error("Distributor SS Laid-In Cost is non-positive.");
 
-        // SRP Calculation
-        let srpDi_USD = distBottleWholesaleDI_USD / (1 - retailerMargin);
-        let srpSs_USD = distBottleWholesaleSS_USD / (1 - retailerMargin);
+       // Regular Wholesale SS
+       const distCaseWholesaleSS_USD = distributorLaidInCostSS_USD / (1 - distributorMargin);
+       const distBottleWholesaleSS_USD = distCaseWholesaleSS_USD / casePack;
 
-        let adjustedCaseWholesaleDI_USD = distCaseWholesaleDI_USD;
-        let adjustedBottleWholesaleDI_USD = distBottleWholesaleDI_USD;
-        let adjustedCaseWholesaleSS_USD = distCaseWholesaleSS_USD;
-        let adjustedBottleWholesaleSS_USD = distBottleWholesaleSS_USD;
-        let adjustedDistBtgPriceDI_USD = distBtgPriceDI_USD;
-        let adjustedDistBtgPriceSS_USD = distBtgPriceSS_USD;
-        let originalSrpDi_USD = srpDi_USD, originalSrpSs_USD = srpSs_USD; // Store pre-rounding SRP
+       // *** BTG Calculation FIX (SS) ***
+       // Base BTG price on Distributor Laid-In Cost per bottle (Stateside)
+       const distLaidInCostSS_Bottle_USD = distributorLaidInCostSS_USD / casePack;
+       if (isNaN(distLaidInCostSS_Bottle_USD) || distLaidInCostSS_Bottle_USD < 0) throw new Error("Invalid SS Laid-In Cost per bottle.");
+       const distBtgPriceSS_USD = distLaidInCostSS_Bottle_USD / (1 - distBtgMargin); // Apply BTG margin to bottle laid-in cost
 
-        if (formData.roundSrp && formData.calculationMode === 'forward') { // Only apply rounding effect forward
-            srpDi_USD = roundToNearest99(srpDi_USD);
-            srpSs_USD = roundToNearest99(srpSs_USD);
 
-            // Recalculate upstream prices based on the rounded SRP
-            adjustedBottleWholesaleDI_USD = srpDi_USD * (1 - retailerMargin);
-            adjustedCaseWholesaleDI_USD = adjustedBottleWholesaleDI_USD * casePack;
-            adjustedDistBtgPriceDI_USD = adjustedBottleWholesaleDI_USD / (1 - distBtgMargin); // Recalc BTG based on adjusted bottle
-
-            adjustedBottleWholesaleSS_USD = srpSs_USD * (1 - retailerMargin);
-            adjustedCaseWholesaleSS_USD = adjustedBottleWholesaleSS_USD * casePack;
-            adjustedDistBtgPriceSS_USD = adjustedBottleWholesaleSS_USD / (1 - distBtgMargin); // Recalc BTG based on adjusted bottle
-        } else if (formData.calculationMode === 'reverse') {
-            // In reverse mode, the target SRP was the starting point.
-            // We display the user's target SRP as the result for consistency.
-            srpDi_USD = targetSrp; // <-- FIX: Use the targetSrp variable
-            srpSs_USD = targetSrp; // <-- FIX: Use the targetSrp variable
-            // Note: If rounding was enabled, the reverse calculation already factored
-            // this in by starting from the target. We simply display the target back.
+       // Check for division-by-zero in intermediate calculations (margins = 100%)
+        if (![supplierFobDI_USD, supplierFobSS_USD, distCaseWholesaleDI_USD, distCaseWholesaleSS_USD, distBtgPriceDI_USD, distBtgPriceSS_USD].every(val => isFinite(val) && val >= 0)) {
+             throw new Error("Calculation resulted in non-finite or negative intermediate price due to margin(s).");
         }
 
-        // Gross Profit
-        let supplierGrossProfitDI = null, distributorGrossProfitDI = null;
-        let supplierGrossProfitSS = null, distributorGrossProfitSS = null;
-        if (casesSold > 0) {
-             supplierGrossProfitDI = (supplierFobDI_USD - supplierLaidInCostDI_USD) * casesSold;
-             distributorGrossProfitDI = (adjustedCaseWholesaleDI_USD - distributorLaidInCostDI_USD) * casesSold; // Use adjusted wholesale for GP
-             supplierGrossProfitSS = (supplierFobSS_USD - supplierLaidInCostSS_USD) * casesSold;
-             distributorGrossProfitSS = (adjustedCaseWholesaleSS_USD - distributorLaidInCostSS_USD) * casesSold; // Use adjusted wholesale for GP
-        }
+       // SRP Calculation
+       let srpDi_USD = distBottleWholesaleDI_USD / (1 - retailerMargin);
+       let srpSs_USD = distBottleWholesaleSS_USD / (1 - retailerMargin);
 
-        setCalculations({
-            effectiveExchangeRate, caseCostUSD, tariffAmountUSD,
-            supplierLaidInCostDI_USD, supplierFobDI_USD, distributorLaidInCostDI_USD,
-            distCaseWholesaleDI_USD: adjustedCaseWholesaleDI_USD, distBottleWholesaleDI_USD: adjustedBottleWholesaleDI_USD,
-            distBtgPriceDI_USD: adjustedDistBtgPriceDI_USD, srpDi_USD, originalSrpDi_USD,
-            supplierLaidInCostSS_USD, supplierFobSS_USD, distributorLaidInCostSS_USD,
-            distCaseWholesaleSS_USD: adjustedCaseWholesaleSS_USD, distBottleWholesaleSS_USD: adjustedBottleWholesaleSS_USD,
-            distBtgPriceSS_USD: adjustedDistBtgPriceSS_USD, srpSs_USD, originalSrpSs_USD,
-            supplierGrossProfitDI, distributorGrossProfitDI,
-            supplierGrossProfitSS, distributorGrossProfitSS,
-            baseBottleCostOriginal, baseCasePriceOriginal
-        });
-        // Clear specific calculation error on success, keep input validation errors
-        setErrors(prev => ({ ...prev, calculation: null }));
+       // Store values before potential adjustment by rounding
+       let adjustedCaseWholesaleDI_USD = distCaseWholesaleDI_USD;
+       let adjustedBottleWholesaleDI_USD = distBottleWholesaleDI_USD;
+       let adjustedCaseWholesaleSS_USD = distCaseWholesaleSS_USD;
+       let adjustedBottleWholesaleSS_USD = distBottleWholesaleSS_USD;
+       // BTG Prices are NOT adjusted by SRP rounding
+       let adjustedDistBtgPriceDI_USD = distBtgPriceDI_USD;
+       let adjustedDistBtgPriceSS_USD = distBtgPriceSS_USD;
+       let originalSrpDi_USD = srpDi_USD, originalSrpSs_USD = srpSs_USD; // Store pre-rounding SRP
 
-    } catch (error) {
-        console.error("Calculation Error:", error);
-        const errorMessage = (error instanceof Error) ? error.message : "An unexpected error occurred during calculation.";
-        // Set calculation error, keep existing input errors
-        setErrors(prev => ({ ...prev, calculation: errorMessage }));
-        setCalculations({}); // Clear results on error
-    } finally {
-        setIsCalculating(false);
-    }
-  }, [formData]); // Dependency: Recalculate whenever formData changes
+       if (formData.roundSrp && formData.calculationMode === 'forward') { // Only apply rounding effect forward
+           srpDi_USD = roundToNearest99(srpDi_USD);
+           srpSs_USD = roundToNearest99(srpSs_USD);
 
-  // --- Input Change Handler (Includes counterpart cost calc & basic validation) ---
-   const handleInputChange = useCallback((e) => {
-       const { name, value, type, checked } = e.target;
-       let newValue = type === 'checkbox' ? checked : value;
-       let fieldError = ""; // Error specific to this field
+           // Recalculate *upstream regular wholesale* prices based on the rounded SRP
+           adjustedBottleWholesaleDI_USD = srpDi_USD * (1 - retailerMargin);
+           adjustedCaseWholesaleDI_USD = adjustedBottleWholesaleDI_USD * casePack;
+           // *** BTG FIX: Do NOT recalculate BTG based on adjusted bottle wholesale ***
+           // adjustedDistBtgPriceDI_USD = adjustedBottleWholesaleDI_USD / (1 - distBtgMargin); // REMOVED
 
-       const numericFields = [
-           "bottleCost", "casePrice", "targetSrp", "exchangeRate", "customExchangeRate",
-           "exchangeBuffer", "diLogistics", "tariff", "statesideLogistics",
-           "supplierMargin", "distributorMargin", "distributorBtgMargin", "retailerMargin",
-           "casesSold"
-       ];
-
-       let updates = { [name]: newValue };
-       const currentMode = formData.calculationMode; // Use state from closure
-       const casePack = parseInt(formData.casePackSize, 10);
-
-       // Perform validation and counterpart calculation
-       if (numericFields.includes(name)) {
-           if (newValue === "" || newValue === "-") { // Allow empty or just negative sign temporarily
-               fieldError = "";
-               if (currentMode === 'forward') {
-                    if (name === 'bottleCost') updates.casePrice = "";
-                    else if (name === 'casePrice') updates.bottleCost = "";
-               }
-           } else {
-               const num = parseFloat(newValue);
-               if (isNaN(num)) {
-                   fieldError = "Invalid number";
-               } else {
-                   // Basic range checks
-                   if (["supplierMargin", "distributorMargin", "distributorBtgMargin", "retailerMargin"].includes(name) && (num < 0 || num >= 100)) { fieldError = "Must be 0-99.99"; }
-                   else if (["bottleCost", "casePrice", "targetSrp", "diLogistics", "statesideLogistics", "casesSold", "exchangeRate", "customExchangeRate", "exchangeBuffer"].includes(name) && num < 0 && newValue !== "-") { fieldError = "Cannot be negative"; }
-                   else if (name === "tariff" && (num < 0 || num > 200)) { fieldError = "Must be 0-200"; }
-                   else { fieldError = ""; } // Clear error if it seems valid for now
-
-                   // Counterpart Calculation Logic (only in forward mode, only if casePack is valid)
-                   if (currentMode === 'forward' && !isNaN(casePack) && casePack > 0 && !isNaN(num) && num >= 0) {
-                       if (name === 'bottleCost') {
-                           updates.casePrice = (num * casePack).toFixed(2);
-                       } else if (name === 'casePrice') {
-                           updates.bottleCost = (num / casePack).toFixed(4);
-                       }
-                   }
-               }
-           }
-           // Don't overwrite bottle/case cost in reverse mode during input
-           if (currentMode === 'reverse' && (name === 'bottleCost' || name === 'casePrice')) {
-              delete updates[name]; // Prevent direct user edit in reverse mode
-              fieldError = "Calculated in Reverse mode";
-           }
-
-       } else if (name === 'calculationMode' && newValue === 'reverse') {
-           // When switching to reverse, clear the cost inputs as they will be calculated
-           updates.bottleCost = '';
-           updates.casePrice = '';
-           fieldError = ""; // No error on mode switch itself
-       } else if (name === 'calculationMode' && newValue === 'forward') {
-            // When switching to forward, clear target SRP
-           updates.targetSrp = '';
-           fieldError = ""; // No error on mode switch itself
-       } else {
-          fieldError = ""; // Clear errors for non-numeric fields or valid changes
+           adjustedBottleWholesaleSS_USD = srpSs_USD * (1 - retailerMargin);
+           adjustedCaseWholesaleSS_USD = adjustedBottleWholesaleSS_USD * casePack;
+           // *** BTG FIX: Do NOT recalculate BTG based on adjusted bottle wholesale ***
+           // adjustedDistBtgPriceSS_USD = adjustedBottleWholesaleSS_USD / (1 - distBtgMargin); // REMOVED
+       } else if (formData.calculationMode === 'reverse') {
+           // In reverse mode, the target SRP was the starting point.
+           // We display the user's target SRP (or its rounded version if rounding enabled) as the result.
+           srpDi_USD = formData.roundSrp ? roundToNearest99(targetSrp) : targetSrp; // Use targetSrp, potentially rounded
+           srpSs_USD = formData.roundSrp ? roundToNearest99(targetSrp) : targetSrp; // Use targetSrp, potentially rounded
+           // Note: The reverse calculation already factored in rounding if enabled.
+           // We simply display the effective target SRP back.
+           // The `adjustedWholesale` prices calculated *before* this block (based on the reverse calc flow) are correct.
        }
 
-       setFormData(prev => ({ ...prev, ...updates }));
+       // Gross Profit
+       let supplierGrossProfitDI = null, distributorGrossProfitDI = null;
+       let supplierGrossProfitSS = null, distributorGrossProfitSS = null;
+       if (casesSold > 0) {
+            supplierGrossProfitDI = (supplierFobDI_USD - supplierLaidInCostDI_USD) * casesSold;
+            distributorGrossProfitDI = (adjustedCaseWholesaleDI_USD - distributorLaidInCostDI_USD) * casesSold; // Use adjusted wholesale for GP
+            supplierGrossProfitSS = (supplierFobSS_USD - supplierLaidInCostSS_USD) * casesSold;
+            distributorGrossProfitSS = (adjustedCaseWholesaleSS_USD - distributorLaidInCostSS_USD) * casesSold; // Use adjusted wholesale for GP
+       }
 
-       // Update errors state: set or clear the error for the specific field
-       setErrors(prev => ({
-           ...prev,
-           [name]: fieldError || null // Use null to clear the error if fieldError is empty
-       }));
+       setCalculations({
+           effectiveExchangeRate, caseCostUSD, tariffAmountUSD,
+           supplierLaidInCostDI_USD, supplierFobDI_USD, distributorLaidInCostDI_USD,
+           distCaseWholesaleDI_USD: adjustedCaseWholesaleDI_USD, distBottleWholesaleDI_USD: adjustedBottleWholesaleDI_USD,
+           distBtgPriceDI_USD: adjustedDistBtgPriceDI_USD, srpDi_USD, originalSrpDi_USD,
+           supplierLaidInCostSS_USD, supplierFobSS_USD, distributorLaidInCostSS_USD,
+           distCaseWholesaleSS_USD: adjustedCaseWholesaleSS_USD, distBottleWholesaleSS_USD: adjustedBottleWholesaleSS_USD,
+           distBtgPriceSS_USD: adjustedDistBtgPriceSS_USD, srpSs_USD, originalSrpSs_USD,
+           supplierGrossProfitDI, distributorGrossProfitDI,
+           supplierGrossProfitSS, distributorGrossProfitSS,
+           baseBottleCostOriginal, baseCasePriceOriginal // Include derived costs for reverse mode display
+       });
+       // Clear specific calculation error on success, keep input validation errors
+       setErrors(prev => ({ ...prev, calculation: null }));
 
-   }, [formData.calculationMode, formData.casePackSize]); // Dependencies
-
-
-  // --- Other Handlers (Currency, Select, Custom Rate Toggle, Refresh) ---
-  const handleCurrencyChange = useCallback((e) => {
-    const newCurrency = e.target.value;
-    setFormData(prev => ({ ...prev, currency: newCurrency }));
-    // Fetch rate if switching TO EUR and not using custom
-    if (newCurrency === 'EUR' && !formData.useCustomExchangeRate) {
-       fetchRateFromOER(false); // Pass false, don't force unless refresh button is clicked
-    } else {
-       setExchangeRateError(null); // Clear API error if switching to USD
+    } catch (error) {
+       console.error("Calculation Error:", error);
+       const errorMessage = (error instanceof Error) ? error.message : "An unexpected error occurred during calculation.";
+       // Set calculation error, keep existing input errors
+       setErrors(prev => ({ ...prev, calculation: errorMessage }));
+       setCalculations({}); // Clear results on error
+    } finally {
+       setIsCalculating(false);
     }
-    // Clear calculation error when currency changes
-     setErrors(prev => ({ ...prev, calculation: null }));
-  }, [fetchRateFromOER, formData.useCustomExchangeRate]); // Include fetchRate and custom setting
+ }, [formData]); // Dependency: Recalculate whenever formData changes
 
-  const handleSelectChange = useCallback((e) => {
-    const { name, value } = e.target;
-    let updates = { [name]: value };
 
-    // Recalculate counterpart cost if casePackSize changes in forward mode
-    if (name === 'casePackSize' && formData.calculationMode === 'forward') {
-        const newCasePack = parseInt(value, 10);
-        const bottleCost = parseFloat(formData.bottleCost);
-        const casePrice = parseFloat(formData.casePrice);
+ // --- Input Change Handler (Includes counterpart cost calc & basic validation) ---
+  const handleInputChange = useCallback((e) => {
+      const { name, value, type, checked } = e.target;
+      let newValue = type === 'checkbox' ? checked : value;
+      let fieldError = ""; // Error specific to this field
 
-        if (!isNaN(newCasePack) && newCasePack > 0) {
-             if (!isNaN(bottleCost) && bottleCost > 0) {
+      const numericFields = [
+          "bottleCost", "casePrice", "targetSrp", "exchangeRate", "customExchangeRate",
+          "exchangeBuffer", "diLogistics", "tariff", "statesideLogistics",
+          "supplierMargin", "distributorMargin", "distributorBtgMargin", "retailerMargin",
+          "casesSold"
+      ];
+
+      let updates = { [name]: newValue };
+      const currentMode = formData.calculationMode; // Use state from closure
+      const casePack = parseInt(formData.casePackSize, 10);
+
+      // Perform validation and counterpart calculation
+      if (numericFields.includes(name)) {
+          if (newValue === "" || newValue === "-") { // Allow empty or just negative sign temporarily
+              fieldError = "";
+              if (currentMode === 'forward') {
+                   if (name === 'bottleCost') updates.casePrice = "";
+                   else if (name === 'casePrice') updates.bottleCost = "";
+              }
+          } else {
+              const num = parseFloat(newValue);
+              if (isNaN(num)) {
+                  fieldError = "Invalid number";
+              } else {
+                  // Basic range checks
+                  if (["supplierMargin", "distributorMargin", "distributorBtgMargin", "retailerMargin"].includes(name) && (num < 0 || num >= 100)) { fieldError = "Must be 0-99.99"; }
+                  else if (["bottleCost", "casePrice", "targetSrp", "diLogistics", "statesideLogistics", "casesSold", "exchangeRate", "customExchangeRate", "exchangeBuffer"].includes(name) && num < 0 && newValue !== "-") { fieldError = "Cannot be negative"; }
+                  else if (name === "tariff" && (num < 0 || num > 200)) { fieldError = "Must be 0-200"; }
+                  else { fieldError = ""; } // Clear error if it seems valid for now
+
+                  // Counterpart Calculation Logic (only in forward mode, only if casePack is valid)
+                  if (currentMode === 'forward' && !isNaN(casePack) && casePack > 0 && !isNaN(num) && num >= 0) {
+                      if (name === 'bottleCost') {
+                          updates.casePrice = (num * casePack).toFixed(2);
+                      } else if (name === 'casePrice') {
+                          updates.bottleCost = (num / casePack).toFixed(4);
+                      }
+                  }
+              }
+          }
+          // Don't overwrite bottle/case cost in reverse mode during input
+          if (currentMode === 'reverse' && (name === 'bottleCost' || name === 'casePrice')) {
+             delete updates[name]; // Prevent direct user edit in reverse mode
+             // Keep previous calculated value, maybe show a subtle indicator? For now, just prevent change.
+             // fieldError = "Calculated in Reverse mode"; // Optionally set error/info
+          }
+
+      } else if (name === 'calculationMode' && newValue === 'reverse') {
+          // When switching to reverse, clear the cost inputs as they will be calculated
+          updates.bottleCost = '';
+          updates.casePrice = '';
+          updates.targetSrp = ''; // Also clear target SRP initially
+          fieldError = ""; // No error on mode switch itself
+      } else if (name === 'calculationMode' && newValue === 'forward') {
+           // When switching to forward, clear target SRP
+          updates.targetSrp = '';
+          // Optionally clear cost inputs too if desired, or leave them
+          // updates.bottleCost = '';
+          // updates.casePrice = '';
+          fieldError = ""; // No error on mode switch itself
+      } else {
+         fieldError = ""; // Clear errors for non-numeric fields or valid changes
+      }
+
+      setFormData(prev => ({ ...prev, ...updates }));
+
+      // Update errors state: set or clear the error for the specific field
+      setErrors(prev => ({
+          ...prev,
+          [name]: fieldError || null // Use null to clear the error if fieldError is empty
+      }));
+
+  }, [formData.calculationMode, formData.casePackSize]); // Dependencies
+
+
+ // --- Other Handlers (Currency, Select, Custom Rate Toggle, Refresh) ---
+ const handleCurrencyChange = useCallback((e) => {
+   const newCurrency = e.target.value;
+   setFormData(prev => ({ ...prev, currency: newCurrency }));
+   // Fetch rate if switching TO EUR and not using custom
+   if (newCurrency === 'EUR' && !formData.useCustomExchangeRate) {
+      fetchRateFromOER(false); // Pass false, don't force unless refresh button is clicked
+   } else {
+      setExchangeRateError(null); // Clear API error if switching to USD
+   }
+   // Clear calculation error when currency changes
+    setErrors(prev => ({ ...prev, calculation: null }));
+ }, [fetchRateFromOER, formData.useCustomExchangeRate]); // Include fetchRate and custom setting
+
+ const handleSelectChange = useCallback((e) => {
+   const { name, value } = e.target;
+   let updates = { [name]: value };
+
+   // Recalculate counterpart cost if casePackSize changes in forward mode
+   if (name === 'casePackSize' && formData.calculationMode === 'forward') {
+       const newCasePack = parseInt(value, 10);
+       const bottleCost = parseFloat(formData.bottleCost);
+       const casePrice = parseFloat(formData.casePrice);
+
+       if (!isNaN(newCasePack) && newCasePack > 0) {
+            if (!isNaN(bottleCost) && bottleCost > 0) {
                  updates.casePrice = (bottleCost * newCasePack).toFixed(2);
-             } else if (!isNaN(casePrice) && casePrice > 0) {
+            } else if (!isNaN(casePrice) && casePrice > 0) {
                  updates.bottleCost = (casePrice / newCasePack).toFixed(4);
-             }
-         }
+            }
+        }
+   } else if (name === 'calculationMode') {
+        // Clear results and specific inputs when mode changes
+        setCalculations({});
+        if(value === 'forward') {
+            updates.targetSrp = '';
+        } else { // value === 'reverse'
+            updates.bottleCost = '';
+            updates.casePrice = '';
+        }
+        setErrors({}); // Clear all errors on mode switch
+   }
+
+
+   setFormData(prev => ({ ...prev, ...updates }));
+   // Clear calculation error when selects change (handled by mode switch logic too)
+    if (name !== 'calculationMode') {
+       setErrors(prev => ({ ...prev, calculation: null }));
     }
+ }, [formData.calculationMode, formData.bottleCost, formData.casePrice]); // Add dependencies
 
-    setFormData(prev => ({ ...prev, ...updates }));
-    // Clear calculation error when selects change
-     setErrors(prev => ({ ...prev, calculation: null }));
-  }, [formData.calculationMode, formData.bottleCost, formData.casePrice]); // Add dependencies
-
-  const handleCustomRateToggle = useCallback((e) => {
+ const handleCustomRateToggle = useCallback((e) => {
       const useCustom = e.target.checked;
       setFormData(prev => {
           // If switching TO custom, set customRate to current fetched rate initially
@@ -759,133 +791,146 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
       });
       // If switching OFF custom and currency is EUR, trigger a fetch (respecting cache)
       if (!useCustom && formData.currency === 'EUR') {
-          fetchRateFromOER(false); // Don't force
+         fetchRateFromOER(false); // Don't force
       } else if (useCustom) {
-          setExchangeRateError(null); // Clear API error if switching to custom
+         setExchangeRateError(null); // Clear API error if switching to custom
       }
-        // Clear calculation error when toggling custom rate
+       // Clear calculation error when toggling custom rate
        setErrors(prev => ({ ...prev, calculation: null }));
-  }, [fetchRateFromOER, formData.currency]); // Add dependencies
+ }, [fetchRateFromOER, formData.currency]); // Add dependencies
 
-  const handleRefreshRate = useCallback(() => {
+ const handleRefreshRate = useCallback(() => {
       console.log(">>> Manual Refresh Clicked");
       if (formData.currency === 'EUR' && !formData.useCustomExchangeRate) {
-          fetchRateFromOER(true); // Force refresh = true
+         fetchRateFromOER(true); // Force refresh = true
       } else {
            console.log(">>> Refresh skipped (Not EUR or using Custom)");
            setExchangeRateError("Refresh only available for EUR currency when not using manual rate.");
            setTimeout(() => setExchangeRateError(null), 4000); // Clear message after a delay
       }
-  }, [fetchRateFromOER, formData.currency, formData.useCustomExchangeRate]); // Add dependencies
+ }, [fetchRateFromOER, formData.currency, formData.useCustomExchangeRate]); // Add dependencies
 
-  // --- Effects ---
-  // Initial rate fetch on mount if currency is EUR and not using custom
-  useEffect(() => {
-    if (formData.currency === 'EUR' && !formData.useCustomExchangeRate) {
-        fetchRateFromOER(false); // Initial fetch, don't force
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only on mount
+ // --- Effects ---
+ // Initial rate fetch on mount if currency is EUR and not using custom
+ useEffect(() => {
+   if (formData.currency === 'EUR' && !formData.useCustomExchangeRate) {
+      fetchRateFromOER(false); // Initial fetch, don't force
+   }
+   // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, []); // Run only on mount
 
 
-  // Debounced calculation trigger
-  const calculationTimeoutRef = useRef(null);
-  useEffect(() => {
-    clearTimeout(calculationTimeoutRef.current); // Clear previous timeout
-    calculationTimeoutRef.current = setTimeout(() => {
-        // Check for critical input errors before calculating
-        const hasCriticalError = errors.bottleCost || errors.casePrice || errors.costInput || errors.targetSrp || errors.exchangeRate || errors.customExchangeRate || errors.exchangeBuffer || errors.diLogistics || errors.tariff || errors.statesideLogistics || errors.supplierMargin || errors.distributorMargin || errors.distributorBtgMargin || errors.retailerMargin || errors.casesSold;
+ // Debounced calculation trigger
+ const calculationTimeoutRef = useRef(null);
+ useEffect(() => {
+   clearTimeout(calculationTimeoutRef.current); // Clear previous timeout
+   calculationTimeoutRef.current = setTimeout(() => {
+       // Check for critical input errors before calculating
+       const hasCriticalError = errors.bottleCost || errors.casePrice || errors.costInput || errors.targetSrp || errors.exchangeRate || errors.customExchangeRate || errors.exchangeBuffer || errors.diLogistics || errors.tariff || errors.statesideLogistics || errors.supplierMargin || errors.distributorMargin || errors.distributorBtgMargin || errors.retailerMargin || errors.casesSold;
 
-        if (!hasCriticalError) {
-            calculatePricing();
-        } else {
-            console.log("Skipping calculation due to input errors:", errors);
-            // Optionally clear old calculation results if input is now invalid
-             setCalculations({});
-        }
-    }, CALCULATION_TIMEOUT); // Delay calculation
+       if (!hasCriticalError && ( (formData.calculationMode === 'forward' && (formData.bottleCost || formData.casePrice)) || (formData.calculationMode === 'reverse' && formData.targetSrp) ) ) {
+           calculatePricing();
+       } else {
+           console.log("Skipping calculation due to input errors or missing required input:", errors);
+           // Optionally clear old calculation results if input is now invalid or incomplete
+            setCalculations({});
+       }
+   }, CALCULATION_TIMEOUT); // Delay calculation
 
-    // Cleanup function to clear timeout if component unmounts or formData changes again
-    return () => clearTimeout(calculationTimeoutRef.current);
-  }, [formData, errors, calculatePricing]); // Re-run when formData or errors change
+   // Cleanup function to clear timeout if component unmounts or formData changes again
+   return () => clearTimeout(calculationTimeoutRef.current);
+ }, [formData, errors, calculatePricing]); // Re-run when formData or errors change
 
- // --- Action Handlers (Save, Download, Print) ---
- const handleSave = () => { alert('Save functionality not yet implemented.'); };
- const handleDownload = () => {
+
+// --- Action Handlers (Save, Download, Print) ---
+const handleSave = () => { alert('Save functionality not yet implemented.'); };
+const handleDownload = () => {
     if (!calculations.srpDi_USD && !calculations.srpSs_USD) {
-        alert("Please perform a calculation first.");
-        return;
+       alert("Please perform a calculation first.");
+       return;
     }
     // Header Row
     const headers = [
-        "Parameter", "Value",
-        "DI Parameter", "DI Value (USD)",
-        "SS Parameter", "SS Value (USD)"
+       "Parameter", "Value",
+       "DI Parameter", "DI Value (USD)",
+       "SS Parameter", "SS Value (USD)"
     ];
     // Input Data
     const inputData = [
-        ["Wine Name", formData.wineName],
-        ["Calculation Mode", formData.calculationMode],
-        ["Supplier Currency", formData.currency],
-        [`Bottle Cost (${formData.currency})`, formData.bottleCost],
-        [`Case Price (${formData.currency})`, formData.casePrice],
-        ["Case Pack Size", formData.casePackSize],
-        ["Bottle Size", formData.bottleSize],
-        ["Exchange Rate Source", formData.useCustomExchangeRate ? "Manual" : "Fetched"],
-        ["Base Exchange Rate", formData.useCustomExchangeRate ? "N/A" : formData.exchangeRate],
-        ["Manual Exchange Rate", formData.useCustomExchangeRate ? formData.customExchangeRate : "N/A"],
-        ["Exchange Buffer (%)", formData.exchangeBuffer],
-        ["Effective Rate (EUR->USD)", calculations.effectiveExchangeRate?.toFixed(5) ?? 'N/A'],
-        ["DI Logistics ($/Case)", formData.diLogistics],
-        ["Tariff (%)", formData.tariff],
-        ["Stateside Logistics ($/Case)", formData.statesideLogistics],
-        ["Supplier Margin (%)", formData.supplierMargin],
-        ["Distributor Margin (%)", formData.distributorMargin],
-        ["Distributor BTG Margin (%)", formData.distributorBtgMargin],
-        ["Retailer Margin (%)", formData.retailerMargin],
-        ["Round SRP?", formData.roundSrp ? 'Yes' : 'No'],
-        ["Cases Sold (for GP)", formData.casesSold || "N/A"],
-        ["Target SRP (USD)", formData.calculationMode === 'reverse' ? formData.targetSrp : "N/A"]
+       ["Wine Name", formData.wineName],
+       ["Calculation Mode", formData.calculationMode],
+       ["Supplier Currency", formData.currency],
+       [`Bottle Cost (${formData.currency})`, formData.bottleCost], // Shows derived cost in reverse mode
+       [`Case Price (${formData.currency})`, formData.casePrice],   // Shows derived cost in reverse mode
+       ["Case Pack Size", formData.casePackSize],
+       ["Bottle Size", formData.bottleSize],
+       ["Exchange Rate Source", formData.useCustomExchangeRate ? "Manual" : "Fetched"],
+       ["Base Exchange Rate", formData.useCustomExchangeRate ? "N/A" : formData.exchangeRate],
+       ["Manual Exchange Rate", formData.useCustomExchangeRate ? formData.customExchangeRate : "N/A"],
+       ["Exchange Buffer (%)", formData.exchangeBuffer],
+       ["Effective Rate (EUR->USD)", calculations.effectiveExchangeRate?.toFixed(5) ?? 'N/A'],
+       ["DI Logistics ($/Case)", formData.diLogistics],
+       ["Tariff (%)", formData.tariff],
+       ["Stateside Logistics ($/Case)", formData.statesideLogistics],
+       ["Supplier Margin (%)", formData.supplierMargin],
+       ["Distributor Margin (%)", formData.distributorMargin],
+       ["Distributor BTG Margin (%)", formData.distributorBtgMargin],
+       ["Retailer Margin (%)", formData.retailerMargin],
+       ["Round SRP?", formData.roundSrp ? 'Yes' : 'No'],
+       ["Cases Sold (for GP)", formData.casesSold || "N/A"],
+       ["Target SRP (USD)", formData.calculationMode === 'reverse' ? formData.targetSrp : "N/A"]
     ];
     // Calculation Data
-    const calcDataDI = [
+    const calcDataBase = [
         ["Base Case Cost (USD)", calculations.caseCostUSD],
         ["Tariff Amount (USD)", calculations.tariffAmountUSD],
-        ["Supplier Laid-In DI (USD)", calculations.supplierLaidInCostDI_USD],
-        ["Supplier FOB DI (USD)", calculations.supplierFobDI_USD],
-        ["Distributor Laid-In DI (USD)", calculations.distributorLaidInCostDI_USD],
-        ["Distributor Whsl Case DI (USD)", calculations.distCaseWholesaleDI_USD],
-        ["Distributor Whsl Bottle DI (USD)", calculations.distBottleWholesaleDI_USD],
-        ["Distributor BTG Bottle DI (USD)", calculations.distBtgPriceDI_USD],
-        ["SRP DI (USD)", calculations.srpDi_USD],
-        ...(calculations.supplierGrossProfitDI != null ? [["Supplier GP DI (USD)", calculations.supplierGrossProfitDI]] : []),
-        ...(calculations.distributorGrossProfitDI != null ? [["Distributor GP DI (USD)", calculations.distributorGrossProfitDI]] : []),
+    ];
+    const calcDataDI = [
+       ...calcDataBase,
+       ["Supplier Laid-In DI (USD)", calculations.supplierLaidInCostDI_USD],
+       ["Supplier FOB DI (USD)", calculations.supplierFobDI_USD],
+       ["Distributor Laid-In DI (USD)", calculations.distributorLaidInCostDI_USD],
+       ["Distributor Whsl Case DI (USD)", calculations.distCaseWholesaleDI_USD],
+       ["Distributor Whsl Bottle DI (USD)", calculations.distBottleWholesaleDI_USD],
+       ["Distributor BTG Bottle DI (USD)", calculations.distBtgPriceDI_USD], // Updated BTG
+       ["SRP DI (USD)", calculations.srpDi_USD],
+       ...(calculations.supplierGrossProfitDI != null ? [["Supplier GP DI (USD)", calculations.supplierGrossProfitDI]] : []),
+       ...(calculations.distributorGrossProfitDI != null ? [["Distributor GP DI (USD)", calculations.distributorGrossProfitDI]] : []),
     ];
     const calcDataSS = [
-        ["Base Case Cost (USD)", calculations.caseCostUSD], // Repeated for alignment
-        ["Tariff Amount (USD)", calculations.tariffAmountUSD], // Repeated
-        ["Supplier Laid-In SS (USD)", calculations.supplierLaidInCostSS_USD],
-        ["Supplier FOB SS (USD)", calculations.supplierFobSS_USD],
-        ["Distributor Laid-In SS (USD)", calculations.distributorLaidInCostSS_USD],
-        ["Distributor Whsl Case SS (USD)", calculations.distCaseWholesaleSS_USD],
-        ["Distributor Whsl Bottle SS (USD)", calculations.distBottleWholesaleSS_USD],
-        ["Distributor BTG Bottle SS (USD)", calculations.distBtgPriceSS_USD],
-        ["SRP SS (USD)", calculations.srpSs_USD],
-        ...(calculations.supplierGrossProfitSS != null ? [["Supplier GP SS (USD)", calculations.supplierGrossProfitSS]] : []),
-        ...(calculations.distributorGrossProfitSS != null ? [["Distributor GP SS (USD)", calculations.distributorGrossProfitSS]] : []),
+       ...calcDataBase, // Repeat base costs for alignment if needed, or handle differently
+       ["Supplier Laid-In SS (USD)", calculations.supplierLaidInCostSS_USD], // Same as DI Laid-In
+       ["Supplier FOB SS (USD)", calculations.supplierFobSS_USD],
+       ["Distributor Laid-In SS (USD)", calculations.distributorLaidInCostSS_USD],
+       ["Distributor Whsl Case SS (USD)", calculations.distCaseWholesaleSS_USD],
+       ["Distributor Whsl Bottle SS (USD)", calculations.distBottleWholesaleSS_USD],
+       ["Distributor BTG Bottle SS (USD)", calculations.distBtgPriceSS_USD], // Updated BTG
+       ["SRP SS (USD)", calculations.srpSs_USD],
+       ...(calculations.supplierGrossProfitSS != null ? [["Supplier GP SS (USD)", calculations.supplierGrossProfitSS]] : []),
+       ...(calculations.distributorGrossProfitSS != null ? [["Distributor GP SS (USD)", calculations.distributorGrossProfitSS]] : []),
     ];
      // Combine rows, ensuring alignment
-     const maxRows = Math.max(inputData.length, calcDataDI.length, calcDataSS.length);
+     const maxInputRows = inputData.length;
+     const maxCalcRows = Math.max(calcDataDI.length, calcDataSS.length);
      let combinedRows = [];
-     for (let i = 0; i < maxRows; i++) {
+
+     // Add Input Rows first, padded
+     for (let i = 0; i < maxInputRows; i++) {
          const inputRow = inputData[i] || ["", ""];
+         combinedRows.push([inputRow[0], inputRow[1], "", "", "", ""]);
+     }
+     // Add a separator row maybe?
+     combinedRows.push(["---", "---", "---", "---", "---", "---"]);
+
+     // Add Calculation Rows
+     for (let i = 0; i < maxCalcRows; i++) {
          const diRow = calcDataDI[i] || ["", ""];
          const ssRow = calcDataSS[i] || ["", ""];
          // Format numbers as numbers for CSV where appropriate, else use formatted string
          const formatValue = (val) => typeof val === 'number' ? val.toFixed(4) : val;
 
          combinedRows.push([
-             inputRow[0], formatValue(inputRow[1]),
+             "", "", // No input parameter here
              diRow[0], formatValue(diRow[1]),
              ssRow[0], formatValue(ssRow[1]),
          ]);
@@ -906,148 +951,188 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
- };
- const handlePrint = () => { window.print(); };
+};
+const handlePrint = () => { window.print(); };
 
-  // --- Render Logic ---
-  const hasCalculations = calculations && calculations.srpDi_USD; // Check if results exist
+ // --- Render Logic ---
+ const hasCalculations = calculations && (calculations.srpDi_USD != null || calculations.srpSs_USD != null); // Check if results exist
 
-  return (
-    <div className="container mx-auto p-4 max-w-6xl font-sans">
-      <div className="flex justify-between items-center mb-4 flex-wrap">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Wine Pricing Calculator</h1>
-        <div className="flex space-x-2 mt-2 md:mt-0 print:hidden">
-          <button onClick={handleSave} title="Save Configuration (Not Implemented)" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled><Save className="w-5 h-5" /></button>
-          <button onClick={handleDownload} title="Download Results as CSV" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled={!hasCalculations}><Download className="w-5 h-5" /></button>
-          <button onClick={handlePrint} title="Print Page" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"><Printer className="w-5 h-5" /></button>
-        </div>
-      </div>
+ return (
+   <div className="container mx-auto p-4 max-w-6xl font-sans">
+     <div className="flex justify-between items-center mb-4 flex-wrap">
+       <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Wine Pricing Calculator</h1>
+       <div className="flex space-x-2 mt-2 md:mt-0 print:hidden">
+         <button onClick={handleSave} title="Save Configuration (Not Implemented)" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled><Save className="w-5 h-5" /></button>
+         <button onClick={handleDownload} title="Download Results as CSV" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled={!hasCalculations}><Download className="w-5 h-5" /></button>
+         <button onClick={handlePrint} title="Print Page" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"><Printer className="w-5 h-5" /></button>
+       </div>
+     </div>
 
-       {/* Global Calculation Error Display */}
-        {errors.calculation && (
-          <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-800 rounded-md text-sm flex items-center">
-              <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0"/>
-              <span>Calculation Error: {errors.calculation}</span>
-          </div>
-        )}
+      {/* Global Calculation Error Display */}
+       {errors.calculation && (
+         <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-800 rounded-md text-sm flex items-center">
+            <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0"/>
+            <span>Calculation Error: {errors.calculation}</span>
+         </div>
+       )}
 
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Input Panel */}
-        <div className="md:col-span-1">
-          <InputPanel
-            formData={formData}
-            setFormData={setFormData} // Pass setter if InputPanel modifies complex state? No, use handlers.
-            handleInputChange={handleInputChange}
-            handleCurrencyChange={handleCurrencyChange}
-            handleSelectChange={handleSelectChange}
-            handleCustomRateToggle={handleCustomRateToggle}
-            handleRefreshRate={handleRefreshRate}
-            isExchangeRateLoading={isExchangeRateLoading}
-            exchangeRateError={exchangeRateError}
-            showAdvanced={showAdvanced}
-            setShowAdvanced={setShowAdvanced}
-            errors={errors} // Pass all errors
-          />
-        </div>
+     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+       {/* Input Panel */}
+       <div className="md:col-span-1">
+         <InputPanel
+           formData={formData}
+           setFormData={setFormData} // Pass setter if InputPanel modifies complex state? No, use handlers.
+           handleInputChange={handleInputChange}
+           handleCurrencyChange={handleCurrencyChange}
+           handleSelectChange={handleSelectChange}
+           handleCustomRateToggle={handleCustomRateToggle}
+           handleRefreshRate={handleRefreshRate}
+           isExchangeRateLoading={isExchangeRateLoading}
+           exchangeRateError={exchangeRateError}
+           showAdvanced={showAdvanced}
+           setShowAdvanced={setShowAdvanced}
+           errors={errors} // Pass all errors
+         />
+       </div>
 
-        {/* Results Panel */}
-        <div className="md:col-span-2">
-            {isCalculating && !Object.keys(calculations).length && ( // Show loading only if no results yet
-                <div className="flex justify-center items-center h-64 bg-gray-50 rounded-lg shadow border border-gray-100">
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-                </div>
-            )}
+       {/* Results Panel */}
+       <div className="md:col-span-2">
+           {isCalculating && !hasCalculations && ( // Show loading only if no results yet and actively calculating
+               <div className="flex justify-center items-center h-64 bg-gray-50 rounded-lg shadow border border-gray-100">
+                   <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+               </div>
+           )}
 
-          {(!isCalculating || Object.keys(calculations).length > 0) && Object.keys(calculations).length === 0 && !errors.calculation && !errors.costInput && !errors.targetSrp && ( // Show prompt if not loading, no results, and no critical errors
-              <div className="flex flex-col justify-center items-center h-64 bg-gray-50 rounded-lg shadow border border-gray-100 p-4 text-center">
-                 <p className="text-gray-500">Enter cost or target SRP to see calculations.</p>
-                   {(errors.exchangeRate || errors.customExchangeRate) && formData.currency === 'EUR' && (
-                       <p className="text-yellow-700 text-sm mt-2">Note: Using default exchange rate due to input error.</p>
+          {/* Initial Prompt / Error Prompt */}
+          {!isCalculating && !hasCalculations && (
+               <div className="flex flex-col justify-center items-center h-64 bg-gray-50 rounded-lg shadow border border-gray-100 p-4 text-center">
+                   {errors.calculation || errors.costInput || errors.targetSrp ? (
+                       <p className="text-red-600">Please correct the input errors to see results.</p>
+                   ) : (
+                       <p className="text-gray-500">Enter cost or target SRP to see calculations.</p>
                    )}
-              </div>
+                   {(errors.exchangeRate || errors.customExchangeRate) && formData.currency === 'EUR' && (
+                        <p className="text-yellow-700 text-sm mt-2">Note: Using default/previous exchange rate due to input error.</p>
+                   )}
+               </div>
           )}
 
-          {/* Display Results or Persistent Errors */}
-          {(hasCalculations || errors.calculation || errors.costInput || errors.targetSrp) && !isCalculating && ( // Show results area if calc done OR if there are persistent errors preventing calc
-            <div className="bg-white p-4 md:p-6 rounded-lg shadow border border-gray-100">
-              <h3 className="text-lg font-semibold mb-4 text-gray-800">Calculation Results</h3>
-              {!hasCalculations && (errors.calculation || errors.costInput || errors.targetSrp) && (
-                  <div className="text-center text-gray-500 p-4 border rounded-md bg-gray-50">
-                      Please correct the input errors to see results.
-                  </div>
+
+         {/* Display Results Area (Show if calculations are done, even if loading indicator is briefly shown during recalc) */}
+         {hasCalculations && (
+           <div className="bg-white p-4 md:p-6 rounded-lg shadow border border-gray-100">
+             <h3 className="text-lg font-semibold mb-4 text-gray-800">Calculation Results {isCalculating ? '(Recalculating...)' : ''}</h3>
+
+             {/* *** ADDED: Derived Cost Box for Reverse Mode *** */}
+             {formData.calculationMode === 'reverse' && calculations.baseBottleCostOriginal != null && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-800 rounded-md text-sm">
+                    <p className="font-semibold mb-1">Derived Supplier Cost ({formData.currency}):</p>
+                    <p className="flex justify-between">
+                        <span>Calculated Bottle Cost:</span>
+                        {/* Use original currency and more precision for bottle cost */}
+                        <span>{formatCurrency(calculations.baseBottleCostOriginal, formData.currency, 4)}</span>
+                    </p>
+                    <p className="flex justify-between">
+                        <span>Calculated Case Cost:</span>
+                        <span>{formatCurrency(calculations.baseCasePriceOriginal, formData.currency, 2)}</span>
+                    </p>
+                </div>
               )}
-              {hasCalculations && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                {/* DI Pricing Column */}
+
+
+             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+               {/* DI Pricing Column */}
+               <div>
+                 <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">Direct Import Pricing</h4>
+                 <div className="space-y-1 text-sm">
+                   {/* --- Style Update: Plain --- */}
+                   <p className="flex justify-between"><span>Base Case Cost (USD):</span> <span>{formatCurrency(calculations.caseCostUSD)}</span></p>
+                   <p className="flex justify-between"><span>Tariff ({formData.tariff}%):</span> <span>{formatCurrency(calculations.tariffAmountUSD)}</span></p>
+                   <p className="flex justify-between"><span>DI Logistics:</span> <span>{formatCurrency(formData.diLogistics)}</span></p>
+                   <p className="flex justify-between"><span>Supp. Laid-In DI:</span> <span>{formatCurrency(calculations.supplierLaidInCostDI_USD)}</span></p>
+                   {/* --- Style Update: Semi-Bold --- */}
+                   <p className="flex justify-between font-semibold"><span>Supp. FOB DI ({formData.supplierMargin}%):</span> <span>{formatCurrency(calculations.supplierFobDI_USD)}</span></p>
+                   {/* --- Style Update: Plain --- */}
+                   <p className="flex justify-between"><span>Dist. Laid-In DI:</span> <span>{formatCurrency(calculations.distributorLaidInCostDI_USD)}</span></p>
+                   {/* --- Style Update: Semi-Bold --- */}
+                   <p className="flex justify-between font-semibold"><span>Dist. Whsl Case DI ({formData.distributorMargin}%):</span> <span>{formatCurrency(calculations.distCaseWholesaleDI_USD)}</span></p>
+                   <p className="flex justify-between font-semibold"><span>Dist. Whsl Bottle DI:</span> <span>{formatCurrency(calculations.distBottleWholesaleDI_USD)}</span></p>
+                   {/* --- Style Update: Plain (BTG calculation fixed, style plain) --- */}
+                   <p className="flex justify-between"><span>Dist. BTG Bottle DI ({formData.distributorBtgMargin}%):</span> <span>{formatCurrency(calculations.distBtgPriceDI_USD)}</span></p>
+                   {/* --- Style Update: Label Semi-Bold, Value Large/Bold/Blue --- */}
+                   <p className="flex justify-between items-baseline mt-2">
+                        <span className="font-semibold">SRP (DI, {formData.retailerMargin}%):</span>
+                        <span className="text-2xl font-bold text-blue-700">{formatCurrency(calculations.srpDi_USD)}</span>
+                    </p>
+                    {formData.roundSrp && calculations.originalSrpDi_USD && calculations.srpDi_USD !== calculations.originalSrpDi_USD && (
+                         <p className="text-xs text-gray-500 text-right">(Rounded from {formatCurrency(calculations.originalSrpDi_USD)})</p>
+                    )}
+                 </div>
+               </div>
+
+               {/* SS Pricing Column */}
                 <div>
-                  <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">Direct Import Pricing</h4>
+                   <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">Stateside Inventory Pricing</h4>
                   <div className="space-y-1 text-sm">
-                     <p className="flex justify-between"><span>Base Case Cost (USD):</span> <span>{formatCurrency(calculations.caseCostUSD)}</span></p>
-                     <p className="flex justify-between"><span>Tariff ({formData.tariff}%):</span> <span>{formatCurrency(calculations.tariffAmountUSD)}</span></p>
-                     <p className="flex justify-between"><span>DI Logistics:</span> <span>{formatCurrency(formData.diLogistics)}</span></p>
-                     <p className="flex justify-between font-semibold"><span>Supp. Laid-In DI:</span> <span>{formatCurrency(calculations.supplierLaidInCostDI_USD)}</span></p>
-                     <p className="flex justify-between text-blue-700"><span>Supp. FOB DI ({formData.supplierMargin}%):</span> <span>{formatCurrency(calculations.supplierFobDI_USD)}</span></p>
-                     <p className="flex justify-between"><span>Dist. Laid-In DI:</span> <span>{formatCurrency(calculations.distributorLaidInCostDI_USD)}</span></p>
-                     <p className="flex justify-between text-blue-700"><span>Dist. Whsl Case DI ({formData.distributorMargin}%):</span> <span>{formatCurrency(calculations.distCaseWholesaleDI_USD)}</span></p>
-                     <p className="flex justify-between text-blue-700"><span>Dist. Whsl Bottle DI:</span> <span>{formatCurrency(calculations.distBottleWholesaleDI_USD)}</span></p>
-                     <p className="flex justify-between text-green-700"><span>Dist. BTG Bottle DI ({formData.distributorBtgMargin}%):</span> <span>{formatCurrency(calculations.distBtgPriceDI_USD)}</span></p>
-                     <p className="flex justify-between font-bold text-xl mt-2"><span>SRP (DI, {formData.retailerMargin}%):</span> <span>{formatCurrency(calculations.srpDi_USD)}</span></p>
-                      {formData.roundSrp && calculations.originalSrpDi_USD && calculations.srpDi_USD !== calculations.originalSrpDi_USD && (
-                          <p className="text-xs text-gray-500 text-right">(Rounded from {formatCurrency(calculations.originalSrpDi_USD)})</p>
-                      )}
+                    {/* --- Style Update: Plain --- */}
+                    <p className="flex justify-between"><span>Supp. Base Cost SS:</span> <span>{formatCurrency(calculations.supplierLaidInCostSS_USD)}</span></p>
+                    {/* --- Style Update: Semi-Bold --- */}
+                    <p className="flex justify-between font-semibold"><span>Supp. FOB SS ({formData.supplierMargin}%):</span> <span>{formatCurrency(calculations.supplierFobSS_USD)}</span></p>
+                    {/* --- Style Update: Special Note Styling --- */}
+                    <p className="flex justify-between">
+                        <span>Stateside Logistics:</span>
+                        <span className="text-gray-500 italic font-normal">(+{formatCurrency(formData.statesideLogistics)})</span>
+                    </p>
+                    {/* --- Style Update: Plain --- */}
+                    <p className="flex justify-between"><span>Dist. Laid-In SS:</span> <span>{formatCurrency(calculations.distributorLaidInCostSS_USD)}</span></p>
+                    {/* --- Style Update: Semi-Bold --- */}
+                    <p className="flex justify-between font-semibold"><span>Dist. Whsl Case SS ({formData.distributorMargin}%):</span> <span>{formatCurrency(calculations.distCaseWholesaleSS_USD)}</span></p>
+                    <p className="flex justify-between font-semibold"><span>Dist. Whsl Bottle SS:</span> <span>{formatCurrency(calculations.distBottleWholesaleSS_USD)}</span></p>
+                    {/* --- Style Update: Plain (BTG calculation fixed, style plain) --- */}
+                    <p className="flex justify-between"><span>Dist. BTG Bottle SS ({formData.distributorBtgMargin}%):</span> <span>{formatCurrency(calculations.distBtgPriceSS_USD)}</span></p>
+                     {/* --- Style Update: Label Semi-Bold, Value Large/Bold/Blue --- */}
+                     <p className="flex justify-between items-baseline mt-2">
+                        <span className="font-semibold">SRP (SS, {formData.retailerMargin}%):</span>
+                        <span className="text-2xl font-bold text-blue-700">{formatCurrency(calculations.srpSs_USD)}</span>
+                    </p>
+                     {formData.roundSrp && calculations.originalSrpSs_USD && calculations.srpSs_USD !== calculations.originalSrpSs_USD && (
+                          <p className="text-xs text-gray-500 text-right">(Rounded from {formatCurrency(calculations.originalSrpSs_USD)})</p>
+                     )}
                   </div>
                 </div>
-                {/* SS Pricing Column */}
-                 <div>
-                    <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">Stateside Inventory Pricing</h4>
-                   <div className="space-y-1 text-sm">
-                       <p className="flex justify-between"><span>Supp. Base Cost SS:</span> <span>{formatCurrency(calculations.supplierLaidInCostSS_USD)}</span></p>
-                       <p className="flex justify-between text-blue-700"><span>Supp. FOB SS ({formData.supplierMargin}%):</span> <span>{formatCurrency(calculations.supplierFobSS_USD)}</span></p>
-                       <p className="flex justify-between"><span>Stateside Logistics:</span> <span className="text-red-600">(+{formatCurrency(formData.statesideLogistics)})</span></p>
-                       <p className="flex justify-between font-semibold"><span>Dist. Laid-In SS:</span> <span>{formatCurrency(calculations.distributorLaidInCostSS_USD)}</span></p>
-                       <p className="flex justify-between text-blue-700"><span>Dist. Whsl Case SS ({formData.distributorMargin}%):</span> <span>{formatCurrency(calculations.distCaseWholesaleSS_USD)}</span></p>
-                       <p className="flex justify-between text-blue-700"><span>Dist. Whsl Bottle SS:</span> <span>{formatCurrency(calculations.distBottleWholesaleSS_USD)}</span></p>
-                       <p className="flex justify-between text-green-700"><span>Dist. BTG Bottle SS ({formData.distributorBtgMargin}%):</span> <span>{formatCurrency(calculations.distBtgPriceSS_USD)}</span></p>
-                       <p className="flex justify-between font-bold text-xl mt-2"><span>SRP (SS, {formData.retailerMargin}%):</span> <span>{formatCurrency(calculations.srpSs_USD)}</span></p>
-                         {formData.roundSrp && calculations.originalSrpSs_USD && calculations.srpSs_USD !== calculations.originalSrpSs_USD && (
-                             <p className="text-xs text-gray-500 text-right">(Rounded from {formatCurrency(calculations.originalSrpSs_USD)})</p>
-                         )}
-                   </div>
-                 </div>
-              </div>
-               )}
+             </div>
 
-              {/* Gross Profit Section (conditionally rendered) */}
-              {hasCalculations && formData.casesSold > 0 && (
-                    <div className="mt-6 pt-4 border-t">
-                         <button type="button" onClick={() => setShowGrossProfit(!showGrossProfit)} className="flex items-center text-sm text-blue-600 hover:text-blue-800 focus:outline-none mb-2">
-                            {showGrossProfit ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />} Gross Profit Analysis ({formData.casesSold} Cases)
-                         </button>
-                         {showGrossProfit && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm bg-gray-50 p-3 rounded border">
-                                {/* DI GP */}
-                                <div>
-                                    <h5 className="font-medium text-gray-600 mb-1">Direct Import GP</h5>
-                                    <p className="flex justify-between"><span>Supplier GP DI:</span> <span className="font-semibold">{formatCurrency(calculations.supplierGrossProfitDI)}</span></p>
-                                    <p className="flex justify-between"><span>Distributor GP DI:</span> <span className="font-semibold">{formatCurrency(calculations.distributorGrossProfitDI)}</span></p>
-                                </div>
-                                {/* SS GP */}
-                                <div>
-                                    <h5 className="font-medium text-gray-600 mb-1">Stateside Inventory GP</h5>
-                                    <p className="flex justify-between"><span>Supplier GP SS:</span> <span className="font-semibold">{formatCurrency(calculations.supplierGrossProfitSS)}</span></p>
-                                    <p className="flex justify-between"><span>Distributor GP SS:</span> <span className="font-semibold">{formatCurrency(calculations.distributorGrossProfitSS)}</span></p>
-                                </div>
-                            </div>
-                         )}
-                    </div>
-              )}
-            </div>
-            )}
-        </div>
-      </div>
-    </div>
-  );
+             {/* Gross Profit Section (conditionally rendered) */}
+             {hasCalculations && formData.casesSold > 0 && (
+                  <div className="mt-6 pt-4 border-t">
+                       <button type="button" onClick={() => setShowGrossProfit(!showGrossProfit)} className="flex items-center text-sm text-blue-600 hover:text-blue-800 focus:outline-none mb-2">
+                          {showGrossProfit ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />} Gross Profit Analysis ({formData.casesSold} Cases)
+                       </button>
+                       {showGrossProfit && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm bg-gray-50 p-3 rounded border">
+                              {/* DI GP */}
+                              <div>
+                                  <h5 className="font-medium text-gray-600 mb-1">Direct Import GP</h5>
+                                  <p className="flex justify-between"><span>Supplier GP DI:</span> <span className="font-semibold">{formatCurrency(calculations.supplierGrossProfitDI)}</span></p>
+                                  <p className="flex justify-between"><span>Distributor GP DI:</span> <span className="font-semibold">{formatCurrency(calculations.distributorGrossProfitDI)}</span></p>
+                              </div>
+                              {/* SS GP */}
+                              <div>
+                                  <h5 className="font-medium text-gray-600 mb-1">Stateside Inventory GP</h5>
+                                  <p className="flex justify-between"><span>Supplier GP SS:</span> <span className="font-semibold">{formatCurrency(calculations.supplierGrossProfitSS)}</span></p>
+                                  <p className="flex justify-between"><span>Distributor GP SS:</span> <span className="font-semibold">{formatCurrency(calculations.distributorGrossProfitSS)}</span></p>
+                              </div>
+                          </div>
+                       )}
+                  </div>
+             )}
+           </div>
+         )}
+       </div>
+     </div>
+   </div>
+ );
 };
 
 export default WinePricingCalculator;
