@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Save, Download, Printer, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Save, Download, Printer, RefreshCw, AlertCircle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 
 // --- Constants ---
 const CURRENCIES = ['EUR', 'USD'];
@@ -63,11 +63,13 @@ const roundToNearest99 = (value) => {
     return num - whole < 0.40 ? Math.max(0, whole - 1 + 0.99) : whole + 0.99;
 };
 
-// --- InputPanel Component (No changes needed here based on requirements) ---
+// --- InputPanel Component (Updated with reverseTargetModel selector) ---
 const InputPanel = ({
     formData, setFormData, handleInputChange, handleCurrencyChange, handleSelectChange,
-    handleCustomRateToggle, handleRefreshRate, // Pass new handlers
-    isExchangeRateLoading, exchangeRateError, showAdvanced, setShowAdvanced, errors
+    handleCustomRateToggle, handleRefreshRate,
+    isExchangeRateLoading, exchangeRateError, showAdvanced, setShowAdvanced, errors,
+    // --- NEW: Props for Reverse Target Model ---
+    reverseTargetModel, handleReverseTargetChange
 }) => {
 
     // Function to get the effective rate for display (no changes needed here)
@@ -126,6 +128,23 @@ const InputPanel = ({
                        <label htmlFor="targetSrp" className="block text-sm font-medium text-gray-700">Target SRP (USD)</label>
                        <input type="number" id="targetSrp" name="targetSrp" value={formData.targetSrp} onChange={handleInputChange} placeholder="e.g., 19.99" min="0" step="0.01" className={`mt-1 block w-full px-3 py-2 border ${errors.targetSrp ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}/>
                        {errors.targetSrp && <p className="mt-1 text-xs text-red-600">{errors.targetSrp}</p>}
+                       
+                       {/* --- NEW: Reverse Target Model Selector --- */}
+                       <div className="mt-2">
+                         <label htmlFor="reverseTargetModel" className="block text-sm font-medium text-gray-700">Target SRP Applies To:</label>
+                         <select
+                           id="reverseTargetModel"
+                           name="reverseTargetModel"
+                           value={reverseTargetModel}
+                           onChange={handleReverseTargetChange}
+                           className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
+                         >
+                           <option value="SS">Stateside Inventory (SS)</option>
+                           <option value="DI">Direct Import (DI)</option>
+                         </select>
+                         <p className="mt-1 text-xs text-gray-500">Select which pricing model your target SRP is based on.</p>
+                       </div>
+                       {/* --- End NEW Selector --- */}
                      </div>
                 )}
                {/* Currency Selection */}
@@ -262,30 +281,38 @@ const InputPanel = ({
 
 // --- Main Calculator Component ---
 const WinePricingCalculator = () => {
- // State Initialization
- const [formData, setFormData] = useState(() => {
-   // Use OER specific cache keys
-   const cachedRate = localStorage.getItem(CACHE_KEY_OER);
-   const rate = cachedRate ? parseFloat(cachedRate).toFixed(5) : DEFAULT_EXCHANGE_RATE;
-   return {
-     ...DEFAULT_FORM_DATA,
-     exchangeRate: rate,
-     customExchangeRate: rate,
-   };
- });
- const [calculations, setCalculations] = useState({});
- const [errors, setErrors] = useState({});
- const [isCalculating, setIsCalculating] = useState(false);
- const [isExchangeRateLoading, setIsExchangeRateLoading] = useState(false);
- const [exchangeRateError, setExchangeRateError] = useState(null);
- const [showAdvanced, setShowAdvanced] = useState(false);
- const [showGrossProfit, setShowGrossProfit] = useState(false);
+  // --- Helper Function for Initial Form Data ---
+  // Calculates the initial state for the form, checking local storage for cached rates.
+  const getInitialFormData = () => {
+    const cachedRate = localStorage.getItem(CACHE_KEY_OER);
+    const rate = cachedRate ? parseFloat(cachedRate).toFixed(5) : DEFAULT_EXCHANGE_RATE;
+    console.log("getInitialFormData: Initial rate determined - ", rate, cachedRate ? "(from cache)" : "(default)");
+    return {
+        ...DEFAULT_FORM_DATA,
+        exchangeRate: rate, // Overwrites default with cached/default
+        customExchangeRate: rate, // Also set custom rate field initially
+    };
+  };
+  // --- End Helper Function ---
 
- // --- API Key (Using OpenExchangeRates App ID) ---
- const oerAppId = process.env.REACT_APP_OER_APP_ID || 'YOUR_OER_APP_ID'; // Fallback for local dev if .env is not set
+  // State Initialization
+  const [formData, setFormData] = useState(getInitialFormData);
+  const [calculations, setCalculations] = useState({});
+  const [errors, setErrors] = useState({});
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [isExchangeRateLoading, setIsExchangeRateLoading] = useState(false);
+  const [exchangeRateError, setExchangeRateError] = useState(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showGrossProfit, setShowGrossProfit] = useState(false);
+  
+  // --- NEW: Reverse Target Model State ---
+  const [reverseTargetModel, setReverseTargetModel] = useState('SS'); // Default to 'SS'
 
-// --- Fetching Logic (Open Exchange Rates - Adapted for Free Plan / USD Base) ---
-const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
+  // --- API Key (Using OpenExchangeRates App ID) ---
+  const oerAppId = process.env.REACT_APP_OER_APP_ID || 'YOUR_OER_APP_ID'; // Fallback for local dev if .env is not set
+
+  // --- Fetching Logic (Open Exchange Rates - Adapted for Free Plan / USD Base) ---
+  const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
     console.log(`>>> fetchRateFromOER called. Force: ${forceRefresh}, Currency: ${formData.currency}, Custom: ${formData.useCustomExchangeRate}`);
 
     // Skip conditions remain the same
@@ -375,11 +402,13 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
     } finally {
       setIsExchangeRateLoading(false);
     }
- }, [oerAppId, formData.currency, formData.useCustomExchangeRate]);
+  }, [oerAppId, formData.currency, formData.useCustomExchangeRate]);
 
- // --- Calculation Logic ---
- const calculatePricing = useCallback(() => {
+  // --- Calculation Logic ---
+  const calculatePricing = useCallback(() => {
     console.log("Calculating pricing with formData:", formData);
+    console.log("Using reverseTargetModel:", reverseTargetModel); // Log the reverse target model
+    
     setIsCalculating(true);
     setErrors(prev => ({ // Clear only calculation-related errors
         calculation: null,
@@ -481,32 +510,55 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
         const tariffFrac = tariffPercent / 100;
         if (isNaN(tariffFrac) || tariffFrac < 0) throw new Error("Invalid Tariff percentage.");
 
-        // Calculate backwards
-        let distWholesaleBottleSS_USD;
+        // --- Modified Reverse Calculation Branching Logic ---
         const effectiveSrp = formData.roundSrp ? roundToNearest99(targetSrp) : targetSrp;
-        distWholesaleBottleSS_USD = effectiveSrp * (1 - retailerMarginFrac);
-        if (isNaN(distWholesaleBottleSS_USD) || distWholesaleBottleSS_USD <= 0) throw new Error("Retailer margin yields non-positive wholesale cost.");
+        let distWholesaleBottle_USD = effectiveSrp * (1 - retailerMarginFrac);
+        if (isNaN(distWholesaleBottle_USD) || distWholesaleBottle_USD <= 0) 
+            throw new Error("Retailer margin yields non-positive wholesale cost.");
 
-        const distCaseWholesaleSS_USD = distWholesaleBottleSS_USD * casePack;
-        const distLaidInCostSS_USD = distCaseWholesaleSS_USD * (1 - distributorMarginFrac);
-        if (isNaN(distLaidInCostSS_USD) || distLaidInCostSS_USD <= 0) throw new Error("Distributor margin yields non-positive laid-in cost.");
+        const distCaseWholesale_USD = distWholesaleBottle_USD * casePack;
+        const distLaidInCostPreSSLogistics_USD = distCaseWholesale_USD * (1 - distributorMarginFrac); // Cost before potential SS logistics
+        if (isNaN(distLaidInCostPreSSLogistics_USD) || distLaidInCostPreSSLogistics_USD <= 0) 
+            throw new Error("Distributor margin yields non-positive laid-in cost.");
 
-        const supplierFobSS_USD = distLaidInCostSS_USD - statesideLogistics;
-        if (isNaN(supplierFobSS_USD) || supplierFobSS_USD <= 0) throw new Error("Stateside logistics cost exceeds distributor laid-in cost.");
+        let supplierLaidInCost_Base; // This will hold the laid-in cost before DI logistics/tariff
 
-        const supplierLaidInCostSS_USD = supplierFobSS_USD * (1 - supplierMarginFrac);
-        if (isNaN(supplierLaidInCostSS_USD) || supplierLaidInCostSS_USD <= 0) throw new Error("Supplier margin yields non-positive SS laid-in cost.");
+        if (reverseTargetModel === 'SS') {
+            // SS Path: Subtract SS Logistics before going back further
+            console.log('Calculating reverse based on SS Target');
+            const supplierFobSS_USD = distLaidInCostPreSSLogistics_USD - statesideLogistics;
+            if (isNaN(supplierFobSS_USD) || supplierFobSS_USD <= 0)
+                throw new Error('Stateside logistics cost exceeds distributor laid-in cost.');
+                
+            // Using your established multiplication logic for reverse supplier margin:
+            supplierLaidInCost_Base = supplierFobSS_USD * (1 - supplierMarginFrac);
+            if (isNaN(supplierLaidInCost_Base) || supplierLaidInCost_Base <= 0)
+                throw new Error('Supplier margin yields non-positive SS laid-in cost.');
+        } else {
+            // 'DI' Path
+            // DI Path: Use the pre-SS-logistics cost as FOB DI, then go back
+            console.log('Calculating reverse based on DI Target');
+            const supplierFobDI_USD = distLaidInCostPreSSLogistics_USD;
+            // Using your established multiplication logic for reverse supplier margin:
+            supplierLaidInCost_Base = supplierFobDI_USD * (1 - supplierMarginFrac);
+            if (isNaN(supplierLaidInCost_Base) || supplierLaidInCost_Base <= 0)
+                throw new Error('Supplier margin yields non-positive DI laid-in cost.');
+        }
 
+        // Now calculate base USD cost using the derived supplierLaidInCost_Base
         const tariffFactor = 1 + tariffFrac;
-        if (tariffFactor <= 0) throw new Error("Tariff cannot be -100% or less.") // Avoid division by zero/negative
+        if (tariffFactor <= 0) throw new Error('Tariff cannot be -100% or less.');
+        
+        caseCostUSD = (supplierLaidInCost_Base - diLogistics) / tariffFactor; // Subtract DI logistics and divide by tariff factor
+        if (isNaN(caseCostUSD) || caseCostUSD <= 0)
+            throw new Error('Logistics/Tariff/Margins yield non-positive base USD cost.');
 
-        caseCostUSD = (supplierLaidInCostSS_USD - diLogistics) / tariffFactor;
-        if (isNaN(caseCostUSD) || caseCostUSD <= 0) throw new Error("Logistics/Tariff yield non-positive base USD cost.");
-
-        // Convert calculated Base USD cost back to original currency
-        if (effectiveExchangeRate <= 0) throw new Error("Cannot convert back: Invalid effective exchange rate (<=0).");
-        baseCasePriceOriginal = caseCostUSD / effectiveExchangeRate; // Corrected: Divide
+        // Convert derived caseCostUSD back to original currency
+        if (effectiveExchangeRate <= 0) throw new Error('Cannot convert back: Invalid effective exchange rate (<=0).');
+        
+        baseCasePriceOriginal = caseCostUSD / effectiveExchangeRate;
         baseBottleCostOriginal = baseCasePriceOriginal / casePack;
+        // --- End Modified Reverse Calculation Branching Logic ---
 
         // Update non-editable cost fields in UI state for reverse mode display
          setFormData(prev => ({
@@ -632,7 +684,8 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
            distBtgPriceSS_USD: adjustedDistBtgPriceSS_USD, srpSs_USD, originalSrpSs_USD,
            supplierGrossProfitDI, distributorGrossProfitDI,
            supplierGrossProfitSS, distributorGrossProfitSS,
-           baseBottleCostOriginal, baseCasePriceOriginal // Include derived costs for reverse mode display
+           baseBottleCostOriginal, baseCasePriceOriginal, // Include derived costs for reverse mode display
+           reverseTargetModelUsed: formData.calculationMode === 'reverse' ? reverseTargetModel : null // Store which model was used
        });
        // Clear specific calculation error on success, keep input validation errors
        setErrors(prev => ({ ...prev, calculation: null }));
@@ -646,10 +699,9 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
     } finally {
        setIsCalculating(false);
     }
- }, [formData]); // Dependency: Recalculate whenever formData changes
+  }, [formData, reverseTargetModel]); // Added reverseTargetModel to dependencies
 
-
- // --- Input Change Handler (Includes counterpart cost calc & basic validation) ---
+  // --- Input Change Handler (Includes counterpart cost calc & basic validation) ---
   const handleInputChange = useCallback((e) => {
       const { name, value, type, checked } = e.target;
       let newValue = type === 'checkbox' ? checked : value;
@@ -729,9 +781,19 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
 
   }, [formData.calculationMode, formData.casePackSize]); // Dependencies
 
+  // --- NEW: Handler for Reverse Target Model Change ---
+  const handleReverseTargetChange = useCallback((e) => {
+    console.log('Setting Reverse Target Model to:', e.target.value);
+    setReverseTargetModel(e.target.value);
+    // Setting the model potentially changes the required cost,
+    // so we should clear previous calculation errors/results
+    setCalculations({}); 
+    setErrors(prev => ({ ...prev, calculation: null }));
+  }, []); // No dependencies needed as it only calls setters
+  // --- End NEW Handler ---
 
- // --- Other Handlers (Currency, Select, Custom Rate Toggle, Refresh) ---
- const handleCurrencyChange = useCallback((e) => {
+  // --- Other Handlers (Currency, Select, Custom Rate Toggle, Refresh) ---
+  const handleCurrencyChange = useCallback((e) => {
    const newCurrency = e.target.value;
    setFormData(prev => ({ ...prev, currency: newCurrency }));
    // Fetch rate if switching TO EUR and not using custom
@@ -742,9 +804,9 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
    }
    // Clear calculation error when currency changes
     setErrors(prev => ({ ...prev, calculation: null }));
- }, [fetchRateFromOER, formData.useCustomExchangeRate]); // Include fetchRate and custom setting
+  }, [fetchRateFromOER, formData.useCustomExchangeRate]); // Include fetchRate and custom setting
 
- const handleSelectChange = useCallback((e) => {
+  const handleSelectChange = useCallback((e) => {
    const { name, value } = e.target;
    let updates = { [name]: value };
 
@@ -773,15 +835,14 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
         setErrors({}); // Clear all errors on mode switch
    }
 
-
    setFormData(prev => ({ ...prev, ...updates }));
    // Clear calculation error when selects change (handled by mode switch logic too)
     if (name !== 'calculationMode') {
        setErrors(prev => ({ ...prev, calculation: null }));
     }
- }, [formData.calculationMode, formData.bottleCost, formData.casePrice]); // Add dependencies
+  }, [formData.calculationMode, formData.bottleCost, formData.casePrice]); // Add dependencies
 
- const handleCustomRateToggle = useCallback((e) => {
+  const handleCustomRateToggle = useCallback((e) => {
       const useCustom = e.target.checked;
       setFormData(prev => {
           // If switching TO custom, set customRate to current fetched rate initially
@@ -797,9 +858,9 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
       }
        // Clear calculation error when toggling custom rate
        setErrors(prev => ({ ...prev, calculation: null }));
- }, [fetchRateFromOER, formData.currency]); // Add dependencies
+  }, [fetchRateFromOER, formData.currency]); // Add dependencies
 
- const handleRefreshRate = useCallback(() => {
+  const handleRefreshRate = useCallback(() => {
       console.log(">>> Manual Refresh Clicked");
       if (formData.currency === 'EUR' && !formData.useCustomExchangeRate) {
          fetchRateFromOER(true); // Force refresh = true
@@ -808,22 +869,22 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
            setExchangeRateError("Refresh only available for EUR currency when not using manual rate.");
            setTimeout(() => setExchangeRateError(null), 4000); // Clear message after a delay
       }
- }, [fetchRateFromOER, formData.currency, formData.useCustomExchangeRate]); // Add dependencies
+  }, [fetchRateFromOER, formData.currency, formData.useCustomExchangeRate]); // Add dependencies
 
- // --- Effects ---
- // Initial rate fetch on mount if currency is EUR and not using custom
- useEffect(() => {
+  // --- Effects ---
+  // Initial rate fetch on mount if currency is EUR and not using custom
+  useEffect(() => {
    if (formData.currency === 'EUR' && !formData.useCustomExchangeRate) {
       fetchRateFromOER(false); // Initial fetch, don't force
    }
    // eslint-disable-next-line react-hooks/exhaustive-deps
- }, []); // Run only on mount
+  }, []); // Run only on mount
 
-
- // Debounced calculation trigger
- const calculationTimeoutRef = useRef(null);
- useEffect(() => {
+  // Debounced calculation trigger
+  const calculationTimeoutRef = useRef(null);
+  useEffect(() => {
    clearTimeout(calculationTimeoutRef.current); // Clear previous timeout
+
    calculationTimeoutRef.current = setTimeout(() => {
        // Check for critical input errors before calculating
        const hasCriticalError = errors.bottleCost || errors.casePrice || errors.costInput || errors.targetSrp || errors.exchangeRate || errors.customExchangeRate || errors.exchangeBuffer || errors.diLogistics || errors.tariff || errors.statesideLogistics || errors.supplierMargin || errors.distributorMargin || errors.distributorBtgMargin || errors.retailerMargin || errors.casesSold;
@@ -839,12 +900,26 @@ const fetchRateFromOER = useCallback(async (forceRefresh = false) => {
 
    // Cleanup function to clear timeout if component unmounts or formData changes again
    return () => clearTimeout(calculationTimeoutRef.current);
- }, [formData, errors, calculatePricing]); // Re-run when formData or errors change
+  }, [formData, errors, calculatePricing, reverseTargetModel]); // Added reverseTargetModel to dependencies
 
+  // --- NEW: Reset Handler ---
+  const handleReset = () => {
+    // Optional: Confirmation
+    // if (!window.confirm("Are you sure you want to reset?")) { return; }
+    console.log("Resetting form state...");
+    setFormData(getInitialFormData()); // Re-use the helper!
+    setCalculations({});              // Clear calculations
+    setErrors({});                    // Clear all errors
+    setReverseTargetModel('SS');      // Reset reverse target model
+    setShowAdvanced(false);           // Reset UI state
+    setShowGrossProfit(false);        // Reset UI state
+    setExchangeRateError(null);       // Clear any API fetch error message
+  };
+  // --- End NEW Reset Handler ---
 
-// --- Action Handlers (Save, Download, Print) ---
-const handleSave = () => { alert('Save functionality not yet implemented.'); };
-const handleDownload = () => {
+  // --- Action Handlers (Save, Download, Print) ---
+  const handleSave = () => { alert('Save functionality not yet implemented.'); };
+  const handleDownload = () => {
     if (!calculations.srpDi_USD && !calculations.srpSs_USD) {
        alert("Please perform a calculation first.");
        return;
@@ -878,7 +953,9 @@ const handleDownload = () => {
        ["Retailer Margin (%)", formData.retailerMargin],
        ["Round SRP?", formData.roundSrp ? 'Yes' : 'No'],
        ["Cases Sold (for GP)", formData.casesSold || "N/A"],
-       ["Target SRP (USD)", formData.calculationMode === 'reverse' ? formData.targetSrp : "N/A"]
+       ["Target SRP (USD)", formData.calculationMode === 'reverse' ? formData.targetSrp : "N/A"],
+       // Add reverseTargetModel info
+       ["Reverse Target Model", formData.calculationMode === 'reverse' ? reverseTargetModel : "N/A"]
     ];
     // Calculation Data
     const calcDataBase = [
@@ -951,17 +1028,22 @@ const handleDownload = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-};
-const handlePrint = () => { window.print(); };
+  };
+  const handlePrint = () => { window.print(); };
 
- // --- Render Logic ---
- const hasCalculations = calculations && (calculations.srpDi_USD != null || calculations.srpSs_USD != null); // Check if results exist
+  // --- Render Logic ---
+  const hasCalculations = calculations && (calculations.srpDi_USD != null || calculations.srpSs_USD != null); // Check if results exist
 
- return (
+  return (
    <div className="container mx-auto p-4 max-w-6xl font-sans">
      <div className="flex justify-between items-center mb-4 flex-wrap">
        <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Wine Pricing Calculator</h1>
        <div className="flex space-x-2 mt-2 md:mt-0 print:hidden">
+        {/* --- Reset Button --- */}
+        <button onClick={handleReset} title="Reset Form" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded">
+            <RotateCcw className="w-5 h-5" />
+        </button>
+        {/* --- End Reset Button --- */}
          <button onClick={handleSave} title="Save Configuration (Not Implemented)" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled><Save className="w-5 h-5" /></button>
          <button onClick={handleDownload} title="Download Results as CSV" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled={!hasCalculations}><Download className="w-5 h-5" /></button>
          <button onClick={handlePrint} title="Print Page" className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"><Printer className="w-5 h-5" /></button>
@@ -982,7 +1064,7 @@ const handlePrint = () => { window.print(); };
        <div className="md:col-span-1">
          <InputPanel
            formData={formData}
-           setFormData={setFormData} // Pass setter if InputPanel modifies complex state? No, use handlers.
+           setFormData={setFormData}
            handleInputChange={handleInputChange}
            handleCurrencyChange={handleCurrencyChange}
            handleSelectChange={handleSelectChange}
@@ -992,7 +1074,10 @@ const handlePrint = () => { window.print(); };
            exchangeRateError={exchangeRateError}
            showAdvanced={showAdvanced}
            setShowAdvanced={setShowAdvanced}
-           errors={errors} // Pass all errors
+           errors={errors}
+           // --- NEW: Props for Reverse Target Model ---
+           reverseTargetModel={reverseTargetModel}
+           handleReverseTargetChange={handleReverseTargetChange}
          />
        </div>
 
@@ -1027,7 +1112,9 @@ const handlePrint = () => { window.print(); };
              {/* *** ADDED: Derived Cost Box for Reverse Mode *** */}
              {formData.calculationMode === 'reverse' && calculations.baseBottleCostOriginal != null && (
                 <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-800 rounded-md text-sm">
-                    <p className="font-semibold mb-1">Derived Supplier Cost ({formData.currency}):</p>
+                    <p className="font-semibold mb-1">
+                      Derived Supplier Cost ({formData.currency}) - Based on {reverseTargetModel} Target:
+                    </p>
                     <p className="flex justify-between">
                         <span>Calculated Bottle Cost:</span>
                         {/* Use original currency and more precision for bottle cost */}
@@ -1044,7 +1131,12 @@ const handlePrint = () => { window.print(); };
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                {/* DI Pricing Column */}
                <div>
-                 <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">Direct Import Pricing</h4>
+                 <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">
+                   Direct Import Pricing
+                   {formData.calculationMode === 'reverse' && reverseTargetModel === 'DI' && (
+                     <span className="text-xs font-normal text-blue-600 ml-2">(Target Model)</span>
+                   )}
+                 </h4>
                  <div className="space-y-1 text-sm">
                    {/* --- Style Update: Plain --- */}
                    <p className="flex justify-between"><span>Base Case Cost (USD):</span> <span>{formatCurrency(calculations.caseCostUSD)}</span></p>
@@ -1063,7 +1155,9 @@ const handlePrint = () => { window.print(); };
                    {/* --- Style Update: Label Semi-Bold, Value Large/Bold/Blue --- */}
                    <p className="flex justify-between items-baseline mt-2">
                         <span className="font-semibold">SRP (DI, {formData.retailerMargin}%):</span>
-                        <span className="text-2xl font-bold text-blue-700">{formatCurrency(calculations.srpDi_USD)}</span>
+                        <span className={`text-2xl font-bold ${formData.calculationMode === 'reverse' && reverseTargetModel === 'DI' ? 'text-blue-700' : 'text-blue-500'}`}>
+                          {formatCurrency(calculations.srpDi_USD)}
+                        </span>
                     </p>
                     {formData.roundSrp && calculations.originalSrpDi_USD && calculations.srpDi_USD !== calculations.originalSrpDi_USD && (
                          <p className="text-xs text-gray-500 text-right">(Rounded from {formatCurrency(calculations.originalSrpDi_USD)})</p>
@@ -1073,7 +1167,12 @@ const handlePrint = () => { window.print(); };
 
                {/* SS Pricing Column */}
                 <div>
-                   <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">Stateside Inventory Pricing</h4>
+                   <h4 className="text-md font-medium text-gray-700 mb-2 border-b pb-1">
+                     Stateside Inventory Pricing
+                     {formData.calculationMode === 'reverse' && reverseTargetModel === 'SS' && (
+                       <span className="text-xs font-normal text-blue-600 ml-2">(Target Model)</span>
+                     )}
+                   </h4>
                   <div className="space-y-1 text-sm">
                     {/* --- Style Update: Plain --- */}
                     <p className="flex justify-between"><span>Supp. Base Cost SS:</span> <span>{formatCurrency(calculations.supplierLaidInCostSS_USD)}</span></p>
@@ -1094,7 +1193,9 @@ const handlePrint = () => { window.print(); };
                      {/* --- Style Update: Label Semi-Bold, Value Large/Bold/Blue --- */}
                      <p className="flex justify-between items-baseline mt-2">
                         <span className="font-semibold">SRP (SS, {formData.retailerMargin}%):</span>
-                        <span className="text-2xl font-bold text-blue-700">{formatCurrency(calculations.srpSs_USD)}</span>
+                        <span className={`text-2xl font-bold ${formData.calculationMode === 'reverse' && reverseTargetModel === 'SS' ? 'text-blue-700' : 'text-blue-500'}`}>
+                          {formatCurrency(calculations.srpSs_USD)}
+                        </span>
                     </p>
                      {formData.roundSrp && calculations.originalSrpSs_USD && calculations.srpSs_USD !== calculations.originalSrpSs_USD && (
                           <p className="text-xs text-gray-500 text-right">(Rounded from {formatCurrency(calculations.originalSrpSs_USD)})</p>
@@ -1132,7 +1233,7 @@ const handlePrint = () => { window.print(); };
        </div>
      </div>
    </div>
- );
+  );
 };
 
 export default WinePricingCalculator;
