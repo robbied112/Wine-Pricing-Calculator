@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 const defaultState = {
   wineName: 'Estate Red Blend 2021',
   currency: 'EUR',
   exchangeRate: 1.08,
+  exchangeBuffer: 0,
   bottleCost: 5.25,
   caseCost: '',
   casePack: 12,
@@ -95,6 +96,38 @@ const SummaryRow = ({ label, value, helper }) => (
 
 const WinePricingCalculator = () => {
   const [inputs, setInputs] = useState(defaultState);
+  const [rateStatus, setRateStatus] = useState({ loading: false, error: null });
+
+  const fetchExchangeRate = async () => {
+    if (inputs.currency !== 'EUR') return;
+
+    setRateStatus({ loading: true, error: null });
+
+    try {
+      const response = await fetch('https://open.er-api.com/v6/latest/EUR');
+      if (!response.ok) throw new Error('Unable to fetch exchange rate');
+
+      const data = await response.json();
+      const liveRate = data?.rates?.USD;
+
+      if (!liveRate || Number.isNaN(Number(liveRate))) throw new Error('Invalid rate from service');
+
+      setInputs((prev) => ({
+        ...prev,
+        exchangeRate: Number(Number(liveRate).toFixed(4)),
+      }));
+      setRateStatus({ loading: false, error: null });
+    } catch (error) {
+      setRateStatus({ loading: false, error: error.message || 'Failed to refresh rate' });
+    }
+  };
+
+  useEffect(() => {
+    if (inputs.currency === 'EUR' && process.env.NODE_ENV !== 'test') {
+      fetchExchangeRate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputs.currency]);
 
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
@@ -117,10 +150,17 @@ const WinePricingCalculator = () => {
     const casePack = Number(inputs.casePack) || 12;
     const bottleCost = Number(inputs.bottleCost) || 0;
     const caseCost = inputs.caseCost !== '' ? Number(inputs.caseCost) : bottleCost * casePack;
-    const baseCaseUSD = inputs.currency === 'EUR' ? caseCost * (Number(inputs.exchangeRate) || 0) : caseCost;
+    const bufferedRate =
+      inputs.currency === 'EUR'
+        ? (Number(inputs.exchangeRate) || 0) * (1 + (Number(inputs.exchangeBuffer) || 0) / 100)
+        : 1;
+
+    const baseCaseUSD = inputs.currency === 'EUR' ? caseCost * bufferedRate : caseCost;
     const baseBottleUSD = baseCaseUSD / casePack;
 
-    const importCase = baseCaseUSD * (1 + (Number(inputs.tariff) || 0) / 100) + (Number(inputs.diFreight) || 0);
+    const supplierCaseUSD = applyMargin(baseCaseUSD, Number(inputs.supplierMargin) || 0);
+
+    const importCase = supplierCaseUSD * (1 + (Number(inputs.tariff) || 0) / 100) + (Number(inputs.diFreight) || 0);
     const landedCase = importCase + (Number(inputs.statesideLogistics) || 0);
 
     const wholesaleCase = applyMargin(landedCase, Number(inputs.distributorMargin) || 0);
@@ -139,8 +179,10 @@ const WinePricingCalculator = () => {
       casePack,
       bottleCost,
       caseCost,
+      bufferedRate,
       baseCaseUSD,
       baseBottleUSD,
+      supplierCaseUSD,
       importCase,
       landedCase,
       wholesaleCase,
@@ -173,14 +215,51 @@ const WinePricingCalculator = () => {
               <option value="EUR">EUR (€)</option>
               <option value="USD">USD ($)</option>
             </SelectInput>
-            <NumberInput
-              label="Exchange rate (EUR → USD)"
-              name="exchangeRate"
-              value={inputs.exchangeRate}
-              onChange={handleChange}
-              step="0.0001"
-              disabled={inputs.currency === 'USD'}
-            />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1">
+                  <NumberInput
+                    label="Exchange rate (EUR → USD)"
+                    name="exchangeRate"
+                    value={inputs.exchangeRate}
+                    onChange={handleChange}
+                    step="0.0001"
+                    disabled={inputs.currency === 'USD'}
+                  />
+                </div>
+                {inputs.currency === 'EUR' && (
+                  <button
+                    type="button"
+                    onClick={fetchExchangeRate}
+                    className="mt-6 whitespace-nowrap rounded-lg border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-800 shadow-sm transition hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={rateStatus.loading}
+                    aria-label="Refresh exchange rate"
+                  >
+                    {rateStatus.loading ? 'Updating…' : 'Use live rate'}
+                  </button>
+                )}
+              </div>
+              {inputs.currency === 'EUR' && (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <NumberInput
+                    label="Exchange buffer"
+                    name="exchangeBuffer"
+                    value={inputs.exchangeBuffer}
+                    onChange={handleChange}
+                    step="0.1"
+                    suffix="%"
+                  />
+                  <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-inner">
+                    <p className="font-semibold">Effective rate</p>
+                    <p>
+                      Base {inputs.exchangeRate || '—'} × buffer ={' '}
+                      <span className="font-semibold">{((Number(inputs.exchangeRate) || 0) * (1 + (Number(inputs.exchangeBuffer) || 0) / 100)).toFixed(4)}</span>
+                    </p>
+                    {rateStatus.error && <p className="mt-1 text-red-600">{rateStatus.error}</p>}
+                  </div>
+                </div>
+              )}
+            </div>
             <NumberInput
               label="Bottle cost"
               name="bottleCost"
@@ -242,6 +321,11 @@ const WinePricingCalculator = () => {
             label="Base case cost"
             helper={`Converted from ${inputs.currency} with pack of ${derived.casePack}`}
             value={`${formatMoney(derived.caseCost, inputs.currency)} → ${formatMoney(derived.baseCaseUSD, 'USD')}`}
+          />
+          <SummaryRow
+            label="Supplier FOB (with margin)"
+            helper={`Targets ${inputs.supplierMargin}% supplier margin`}
+            value={formatMoney(derived.supplierCaseUSD, 'USD')}
           />
           <SummaryRow label="Base bottle cost" value={formatMoney(derived.baseBottleUSD, 'USD')} helper={`${inputs.bottleSize} format`} />
           <SummaryRow label="Import landed case" value={formatMoney(derived.importCase, 'USD')} helper="Supplier + freight + tariffs" />
