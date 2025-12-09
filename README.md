@@ -47,13 +47,16 @@ To learn React, check out the [React documentation](https://reactjs.org/).
 
 ## Publishing your changes to GitHub
 
+Run these commands from the project root (`/workspace/Wine-Pricing-Calculator`) in a terminal. If you open a fresh shell, `cd /workspace/Wine-Pricing-Calculator` first so Git can find the repository.
+
 The project files in this workspace are not linked to a remote by default, so pushing a fresh update requires adding your GitHub repository and then publishing the current branch. A quick checklist:
 
 1. Add your remote once: `git remote add origin https://github.com/<your-account>/<repo>.git`
 2. Confirm remotes: `git remote -v`
-3. Pull any upstream changes if collaborators have pushed since your last sync: `git fetch origin` followed by `git pull origin <branch>` (for example, `work` or `main`).
-4. Commit your local work: `git status`, `git add <files>`, then `git commit -m "Describe your changes"`.
-5. Push the branch to GitHub: `git push -u origin <branch>` on the first push, then `git push origin <branch>` for subsequent updates.
+3. Ensure you are on the branch you want to publish: `git status` shows the current branch near the top.
+4. Pull any upstream changes if collaborators have pushed since your last sync: `git fetch origin` followed by `git pull origin <branch>` (for example, `work` or `main`).
+5. Commit your local work: `git status`, `git add <files>`, then `git commit -m "Describe your changes"`.
+6. Push the branch to GitHub: `git push -u origin <branch>` on the first push, then `git push origin <branch>` for subsequent updates.
 
 Once the push completes, GitHub will show the latest update time on the branch you pushed. If your default branch is `main`, open a pull request or push directly to keep the repository’s landing page in sync.
 
