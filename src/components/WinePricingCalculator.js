@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { calculatePricing } from '../lib/pricingEngine';
+import { PRESETS, applyPresetToInputs, loadUserPresets, saveUserPresets, getAllPresets } from '../lib/presets';
 
 const defaultState = {
-  wineName: 'Estate Red Blend 2021',
+  wineName: 'Wine Example 1',
   currency: 'EUR',
   exchangeRate: 1.08,
   exchangeBuffer: 0,
@@ -14,7 +16,6 @@ const defaultState = {
   statesideLogistics: 10,
   supplierMargin: 30,
   distributorMargin: 30,
-  distributorBtgMargin: 27,
   retailerMargin: 33,
   roundRetail: true,
   casesSold: 100,
@@ -25,16 +26,6 @@ const currencySymbol = {
   EUR: '€',
 };
 
-const roundPrice = (value) => {
-  if (Number.isNaN(value)) return value;
-  const floored = Math.floor(value);
-  return value - floored < 0.4 ? Math.max(0, floored - 1 + 0.99) : floored + 0.99;
-};
-
-const applyMargin = (cost, marginPct) => {
-  const margin = marginPct / 100;
-  return margin >= 1 ? 0 : cost / (1 - margin);
-};
 
 const formatMoney = (value, currency = 'USD') => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
@@ -45,14 +36,17 @@ const formatMoney = (value, currency = 'USD') => {
     maximumFractionDigits: 2,
   });
 };
-
-const NumberInput = ({ label, suffix, ...props }) => (
+const NumberInput = ({ label, prefix, suffix, disabled, ...props }) => (
   <label className="flex flex-col space-y-1 text-sm text-slate-700">
     <span className="font-medium">{label}</span>
     <div className="flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-200">
+      {prefix && <span className="mr-2 text-xs text-slate-500">{prefix}</span>}
       <input
         {...props}
-        className="w-full border-none bg-transparent text-base text-slate-900 placeholder-slate-400 focus:outline-none"
+        disabled={disabled}
+        className={`w-full border-none bg-transparent text-base text-slate-900 placeholder-slate-400 focus:outline-none ${
+          disabled ? 'opacity-60 cursor-not-allowed' : ''
+        }`}
         type="number"
       />
       {suffix && <span className="ml-2 text-xs text-slate-500">{suffix}</span>}
@@ -60,12 +54,29 @@ const NumberInput = ({ label, suffix, ...props }) => (
   </label>
 );
 
-const SelectInput = ({ label, children, ...props }) => (
+const TextInput = ({ label, disabled, ...props }) => (
+  <label className="flex flex-col space-y-1 text-sm text-slate-700">
+    <span className="font-medium">{label}</span>
+    <input
+      {...props}
+      disabled={disabled}
+      className={`rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200 ${
+        disabled ? 'opacity-60 cursor-not-allowed' : ''
+      }`}
+      type="text"
+    />
+  </label>
+);
+
+const SelectInput = ({ label, children, disabled, ...props }) => (
   <label className="flex flex-col space-y-1 text-sm text-slate-700">
     <span className="font-medium">{label}</span>
     <select
       {...props}
-      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+      disabled={disabled}
+      className={`rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200 ${
+        disabled ? 'opacity-60 cursor-not-allowed' : ''
+      }`}
     >
       {children}
     </select>
@@ -94,9 +105,43 @@ const SummaryRow = ({ label, value, helper }) => (
   </div>
 );
 
+const LockIcon = () => (
+  <span className="ml-2 text-slate-400" title="Locked by preset">🔒</span>
+);
+
 const WinePricingCalculator = () => {
   const [inputs, setInputs] = useState(defaultState);
   const [rateStatus, setRateStatus] = useState({ loading: false, error: null });
+
+  const [activePresetId, setActivePresetId] = useState('eu-default');
+  const [isOverrideUnlocked, setIsOverrideUnlocked] = useState(false);
+  const [userPresets, setUserPresets] = useState([]);
+
+  const [isScenarioBEnabled, setIsScenarioBEnabled] = useState(false);
+  const [scenarioBLabel, setScenarioBLabel] = useState('Scenario B');
+  const [scenarioBOverrides, setScenarioBOverrides] = useState({
+    bottleCost: '',
+    caseCost: '',
+    casePack: '',
+    tariff: '',
+    diFreight: '',
+    statesideLogistics: '',
+    supplierMargin: '',
+    distributorMargin: '',
+    retailerMargin: '',
+  });
+
+  const allPresets = getAllPresets(userPresets);
+
+  const activePreset = useMemo(
+    () => allPresets.find((p) => p.id === activePresetId) || null,
+    [activePresetId, allPresets]
+  );
+
+  const lockedFields = activePreset?.lockedFields || [];
+
+  const isLocked = (fieldName) =>
+    !isOverrideUnlocked && lockedFields.includes(fieldName);
 
   const fetchExchangeRate = async () => {
     if (inputs.currency !== 'EUR') return;
@@ -129,6 +174,31 @@ const WinePricingCalculator = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputs.currency]);
 
+  // Apply sensible tariff defaults when currency changes.
+  // - EUR suppliers: default tariff 15 if unset ('' or 0)
+  // - USD suppliers: default tariff 0 if previously defaulted or unset
+  useEffect(() => {
+    if (inputs.currency === 'EUR') {
+      setInputs((prev) => ({
+        ...prev,
+        tariff: prev.tariff === 0 || prev.tariff === '' ? 15 : prev.tariff,
+      }));
+    }
+
+    if (inputs.currency === 'USD') {
+      setInputs((prev) => ({
+        ...prev,
+        tariff: prev.tariff === 15 || prev.tariff === '' ? 0 : prev.tariff,
+      }));
+    }
+    // Only run when currency changes
+  }, [inputs.currency]);
+
+  useEffect(() => {
+    const loaded = loadUserPresets();
+    setUserPresets(loaded);
+  }, []);
+
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
 
@@ -146,58 +216,102 @@ const WinePricingCalculator = () => {
     }));
   };
 
-  const derived = useMemo(() => {
-    const casePack = Number(inputs.casePack) || 12;
-    const bottleCost = Number(inputs.bottleCost) || 0;
-    const caseCost = inputs.caseCost !== '' ? Number(inputs.caseCost) : bottleCost * casePack;
-    const bufferedRate =
-      inputs.currency === 'EUR'
-        ? (Number(inputs.exchangeRate) || 0) * (1 + (Number(inputs.exchangeBuffer) || 0) / 100)
-        : 1;
+  
 
-    const baseCaseUSD = inputs.currency === 'EUR' ? caseCost * bufferedRate : caseCost;
-    const baseBottleUSD = baseCaseUSD / casePack;
+  const handleSaveAsPreset = () => {
+    const name = window.prompt('Preset name (e.g. "Italy – 6pks aggressive")');
+    if (!name) return;
 
-    const supplierCaseUSD = applyMargin(baseCaseUSD, Number(inputs.supplierMargin) || 0);
+    const id = `user-${Date.now()}`;
 
-    const importCase = supplierCaseUSD * (1 + (Number(inputs.tariff) || 0) / 100) + (Number(inputs.diFreight) || 0);
-    const landedCase = importCase + (Number(inputs.statesideLogistics) || 0);
+    const euDefault = PRESETS.find((p) => p.id === 'eu-default');
+    const lockedFields = euDefault?.lockedFields || [];
 
-    const wholesaleCase = applyMargin(landedCase, Number(inputs.distributorMargin) || 0);
-    const wholesaleBottle = wholesaleCase / casePack;
-
-    const btgBottle = applyMargin(landedCase / casePack, Number(inputs.distributorBtgMargin) || 0);
-
-    let srpBottle = applyMargin(wholesaleBottle, Number(inputs.retailerMargin) || 0);
-    if (inputs.roundRetail) srpBottle = roundPrice(srpBottle);
-
-    const srpCase = srpBottle * casePack;
-    const revenue = srpCase * (Number(inputs.casesSold) || 0);
-    const grossMargin = srpCase - wholesaleCase;
-
-    return {
-      casePack,
-      bottleCost,
-      caseCost,
-      bufferedRate,
-      baseCaseUSD,
-      baseBottleUSD,
-      supplierCaseUSD,
-      importCase,
-      landedCase,
-      wholesaleCase,
-      wholesaleBottle,
-      btgBottle,
-      srpBottle,
-      srpCase,
-      revenue,
-      grossMargin,
+    const newPreset = {
+      id,
+      name,
+      description: 'Custom preset',
+      lockedFields,
+      values: {
+        ...inputs,
+      },
     };
-  }, [inputs]);
+
+    setUserPresets((prev) => {
+      const updated = [...prev, newPreset];
+      saveUserPresets(updated);
+      return updated;
+    });
+
+    setActivePresetId(id);
+    setIsOverrideUnlocked(false);
+  };
+
+  const derived = useMemo(() => calculatePricing(inputs), [inputs]);
+
+  const scenarioBInputs = useMemo(() => {
+    if (!isScenarioBEnabled) return null;
+    return {
+      ...inputs,
+      ...Object.fromEntries(
+        Object.entries(scenarioBOverrides).filter(([, value]) => value !== '' && value !== null && value !== undefined)
+      ),
+    };
+  }, [inputs, isScenarioBEnabled, scenarioBOverrides]);
+
+  const derivedB = useMemo(
+    () => (scenarioBInputs ? calculatePricing(scenarioBInputs) : null),
+    [scenarioBInputs]
+  );
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <div className="space-y-6 lg:col-span-2">
+    <div className="grid gap-6 lg:grid-cols-2">
+      {/* LEFT COLUMN: All input cards */}
+      <div className="space-y-6">
+        {/* Preset selector */}
+        <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <label className="flex flex-col space-y-1 text-sm text-slate-700">
+            <span className="font-medium">Pricing preset</span>
+            <select
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+              value={activePresetId}
+              onChange={(e) => {
+                const newId = e.target.value;
+                setActivePresetId(newId);
+                setIsOverrideUnlocked(false);
+                const preset = allPresets.find((p) => p.id === newId) || null;
+                if (preset) {
+                  setInputs((prev) => applyPresetToInputs(prev, preset));
+                }
+              }}
+            >
+              {allPresets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
+            {activePreset && <p className="text-xs text-slate-500">{activePreset.description}</p>}
+            <label className="mt-1 inline-flex items-center gap-2 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                checked={isOverrideUnlocked}
+                onChange={(e) => setIsOverrideUnlocked(e.target.checked)}
+                className="h-3 w-3 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+              />
+              <span>Unlock all fields</span>
+            </label>
+            <button
+              type="button"
+              className="mt-2 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-amber-400 hover:text-amber-800"
+              onClick={handleSaveAsPreset}
+            >
+              Save current as preset
+            </button>
+          </label>
+        </div>
+
+        {/* Input cards */}
         <Card title="Product basics" kicker="Foundation">
           <div className="grid gap-4 md:grid-cols-2">
             <label className="flex flex-col space-y-1 text-sm text-slate-700 md:col-span-2">
@@ -211,7 +325,18 @@ const WinePricingCalculator = () => {
                 placeholder="E.g. Estate Chardonnay 2022"
               />
             </label>
-            <SelectInput label="Supplier currency" name="currency" value={inputs.currency} onChange={handleChange}>
+            <SelectInput
+              label={
+                <span className="font-medium flex items-center">
+                  Supplier currency
+                  {isLocked('currency') && <LockIcon />}
+                </span>
+              }
+              name="currency"
+              value={inputs.currency}
+              onChange={handleChange}
+              disabled={isLocked('currency')}
+            >
               <option value="EUR">EUR (€)</option>
               <option value="USD">USD ($)</option>
             </SelectInput>
@@ -219,12 +344,17 @@ const WinePricingCalculator = () => {
               <div className="flex items-center justify-between gap-3">
                 <div className="flex-1">
                   <NumberInput
-                    label="Exchange rate (EUR → USD)"
+                    label={
+                      <span className="font-medium flex items-center">
+                        Exchange rate (EUR → USD)
+                        {isLocked('exchangeRate') && <LockIcon />}
+                      </span>
+                    }
                     name="exchangeRate"
                     value={inputs.exchangeRate}
                     onChange={handleChange}
                     step="0.0001"
-                    disabled={inputs.currency === 'USD'}
+                    disabled={inputs.currency === 'USD' || isLocked('exchangeRate')}
                   />
                 </div>
                 {inputs.currency === 'EUR' && (
@@ -246,6 +376,7 @@ const WinePricingCalculator = () => {
                     name="exchangeBuffer"
                     value={inputs.exchangeBuffer}
                     onChange={handleChange}
+                    disabled={isLocked('exchangeBuffer')}
                     step="0.1"
                     suffix="%"
                   />
@@ -261,22 +392,81 @@ const WinePricingCalculator = () => {
               )}
             </div>
             <NumberInput
-              label="Bottle cost"
+              label={
+                <span className="font-medium flex items-center">
+                  Bottle cost
+                  {isLocked('bottleCost') && <LockIcon />}
+                </span>
+              }
               name="bottleCost"
               value={inputs.bottleCost}
               onChange={handleChange}
               step="0.01"
               suffix={currencySymbol[inputs.currency]}
+              disabled={isLocked('bottleCost')}
             />
             <NumberInput
-              label="Case cost (override)"
+              label={
+                <span className="font-medium flex items-center">
+                  Case cost (override)
+                  {isLocked('caseCost') && <LockIcon />}
+                </span>
+              }
               name="caseCost"
               value={inputs.caseCost}
               onChange={handleChange}
               step="0.01"
               suffix={currencySymbol[inputs.currency]}
+              disabled={isLocked('caseCost')}
             />
-            <NumberInput label="Case pack" name="casePack" value={inputs.casePack} onChange={handleChange} step="1" />
+            <div className="space-y-2">
+              <NumberInput
+                label={
+                  <span className="font-medium flex items-center">
+                    Case pack
+                    {isLocked('casePack') && <LockIcon />}
+                  </span>
+                }
+                name="casePack"
+                value={inputs.casePack}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '') {
+                    setInputs((prev) => ({ ...prev, casePack: '' }));
+                    return;
+                  }
+                  const n = Number(val);
+                  setInputs((prev) => ({
+                    ...prev,
+                    casePack: Number.isNaN(n) ? prev.casePack : n,
+                  }));
+                }}
+                step="1"
+                disabled={isLocked('casePack')}
+              />
+              <div className="flex flex-wrap gap-2">
+                {[1, 3, 6, 12, 24].map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                      inputs.casePack === option
+                        ? 'border-amber-500 bg-amber-50 text-amber-800'
+                        : 'border-slate-200 bg-white text-slate-700'
+                    }`}
+                    onClick={() =>
+                      setInputs((prev) => ({
+                        ...prev,
+                        casePack: option,
+                      }))
+                    }
+                    disabled={isLocked('casePack')}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
             <SelectInput label="Bottle size" name="bottleSize" value={inputs.bottleSize} onChange={handleChange}>
               {['187ml', '375ml', '500ml', '750ml', '1L', '1.5L', '3L'].map((size) => (
                 <option key={size} value={size}>
@@ -289,14 +479,11 @@ const WinePricingCalculator = () => {
 
         <Card title="Logistics & margins" kicker="Cost stack">
           <div className="grid gap-4 md:grid-cols-2">
-            <NumberInput label="Direct import freight / case" name="diFreight" value={inputs.diFreight} onChange={handleChange} step="0.01" suffix="$" />
-            <NumberInput label="Tariff" name="tariff" value={inputs.tariff} onChange={handleChange} step="0.1" suffix="%" />
-            <NumberInput label="Stateside logistics / case" name="statesideLogistics" value={inputs.statesideLogistics} onChange={handleChange} step="0.01" suffix="$" />
-            <div className="grid grid-cols-2 gap-4">
-              <NumberInput label="Distributor margin" name="distributorMargin" value={inputs.distributorMargin} onChange={handleChange} step="0.1" suffix="%" />
-              <NumberInput label="Distributor BTG margin" name="distributorBtgMargin" value={inputs.distributorBtgMargin} onChange={handleChange} step="0.1" suffix="%" />
-            </div>
-            <NumberInput label="Retailer margin" name="retailerMargin" value={inputs.retailerMargin} onChange={handleChange} step="0.1" suffix="%" />
+            <NumberInput label={<span className="font-medium flex items-center">Direct import freight / case{isLocked('diFreight') && <LockIcon />}</span>} name="diFreight" value={inputs.diFreight} onChange={handleChange} step="0.01" suffix="$" disabled={isLocked('diFreight')} />
+            <NumberInput label={<span className="font-medium flex items-center">Tariff{isLocked('tariff') && <LockIcon />}</span>} name="tariff" value={inputs.tariff} onChange={handleChange} step="0.1" suffix="%" disabled={isLocked('tariff')} />
+            <NumberInput label={<span className="font-medium flex items-center">Stateside logistics / case{isLocked('statesideLogistics') && <LockIcon />}</span>} name="statesideLogistics" value={inputs.statesideLogistics} onChange={handleChange} step="0.01" suffix="$" disabled={isLocked('statesideLogistics')} />
+            <NumberInput label={<span className="font-medium flex items-center">Distributor margin{isLocked('distributorMargin') && <LockIcon />}</span>} name="distributorMargin" value={inputs.distributorMargin} onChange={handleChange} step="0.1" suffix="%" disabled={isLocked('distributorMargin')} />
+            <NumberInput label={<span className="font-medium flex items-center">Retailer margin{isLocked('retailerMargin') && <LockIcon />}</span>} name="retailerMargin" value={inputs.retailerMargin} onChange={handleChange} step="0.1" suffix="%" disabled={isLocked('retailerMargin')} />
             <label className="flex items-center space-x-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
               <input type="checkbox" name="roundRetail" checked={inputs.roundRetail} onChange={handleChange} className="h-4 w-4 text-amber-600 focus:ring-amber-500" />
               <div>
@@ -307,15 +494,195 @@ const WinePricingCalculator = () => {
           </div>
         </Card>
 
-        <Card title="Sales assumptions" kicker="Volume" >
+        <Card title="Sales assumptions" kicker="Volume">
           <div className="grid gap-4 md:grid-cols-2">
             <NumberInput label="Projected cases sold" name="casesSold" value={inputs.casesSold} onChange={handleChange} step="1" />
-            <NumberInput label="Supplier margin target" name="supplierMargin" value={inputs.supplierMargin} onChange={handleChange} step="0.1" suffix="%" />
+            <NumberInput label={<span className="font-medium flex items-center">Supplier margin target{isLocked('supplierMargin') && <LockIcon />}</span>} name="supplierMargin" value={inputs.supplierMargin} onChange={handleChange} step="0.1" suffix="%" disabled={isLocked('supplierMargin')} />
+          </div>
+        </Card>
+
+        <Card title="Scenario B (optional)" kicker="Comparison">
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={isScenarioBEnabled}
+                onChange={(e) => {
+                  const enabled = e.target.checked;
+                  setIsScenarioBEnabled(enabled);
+                  if (enabled) {
+                    setScenarioBOverrides({
+                      bottleCost: inputs.bottleCost,
+                      caseCost: inputs.caseCost,
+                      casePack: inputs.casePack,
+                      tariff: inputs.tariff,
+                      diFreight: inputs.diFreight,
+                      statesideLogistics: inputs.statesideLogistics,
+                      supplierMargin: inputs.supplierMargin,
+                      distributorMargin: inputs.distributorMargin,
+                      retailerMargin: inputs.retailerMargin,
+                    });
+                  } else {
+                    setScenarioBOverrides({
+                      bottleCost: '',
+                      caseCost: '',
+                      casePack: '',
+                      tariff: '',
+                      diFreight: '',
+                      statesideLogistics: '',
+                      supplierMargin: '',
+                      distributorMargin: '',
+                      retailerMargin: '',
+                    });
+                  }
+                }}
+                className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+              />
+              <span>Enable comparison scenario</span>
+            </label>
+
+            {isScenarioBEnabled && (
+              <>
+                <TextInput
+                  label="Scenario label"
+                  name="scenarioBLabel"
+                  value={scenarioBLabel}
+                  onChange={(e) => setScenarioBLabel(e.target.value)}
+                />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <NumberInput
+                    label="Bottle cost (B)"
+                    name="bottleCostB"
+                    value={scenarioBOverrides.bottleCost}
+                    onChange={(e) =>
+                      setScenarioBOverrides((prev) => ({ ...prev, bottleCost: e.target.value }))
+                    }
+                    step="0.01"
+                  />
+                  <NumberInput
+                    label="Case cost (override) (B)"
+                    name="caseCostB"
+                    value={scenarioBOverrides.caseCost}
+                    onChange={(e) =>
+                      setScenarioBOverrides((prev) => ({ ...prev, caseCost: e.target.value }))
+                    }
+                    step="0.01"
+                  />
+                  <NumberInput
+                    label="Case pack (B)"
+                    name="casePackB"
+                    value={scenarioBOverrides.casePack}
+                    onChange={(e) =>
+                      setScenarioBOverrides((prev) => ({ ...prev, casePack: e.target.value }))
+                    }
+                    step="1"
+                  />
+                  <NumberInput
+                    label="Tariff (B)"
+                    name="tariffB"
+                    value={scenarioBOverrides.tariff}
+                    onChange={(e) =>
+                      setScenarioBOverrides((prev) => ({ ...prev, tariff: e.target.value }))
+                    }
+                    step="0.1"
+                    suffix="%"
+                  />
+                  <NumberInput
+                    label="Direct import freight / case (B)"
+                    name="diFreightB"
+                    value={scenarioBOverrides.diFreight}
+                    onChange={(e) =>
+                      setScenarioBOverrides((prev) => ({ ...prev, diFreight: e.target.value }))
+                    }
+                    step="0.01"
+                    prefix="$"
+                  />
+                  <NumberInput
+                    label="Stateside logistics / case (B)"
+                    name="statesideLogisticsB"
+                    value={scenarioBOverrides.statesideLogistics}
+                    onChange={(e) =>
+                      setScenarioBOverrides((prev) => ({ ...prev, statesideLogistics: e.target.value }))
+                    }
+                    step="0.01"
+                    prefix="$"
+                  />
+                  <NumberInput
+                    label="Supplier margin (B)"
+                    name="supplierMarginB"
+                    value={scenarioBOverrides.supplierMargin}
+                    onChange={(e) =>
+                      setScenarioBOverrides((prev) => ({ ...prev, supplierMargin: e.target.value }))
+                    }
+                    step="0.1"
+                    suffix="%"
+                  />
+                  <NumberInput
+                    label="Distributor margin (B)"
+                    name="distributorMarginB"
+                    value={scenarioBOverrides.distributorMargin}
+                    onChange={(e) =>
+                      setScenarioBOverrides((prev) => ({ ...prev, distributorMargin: e.target.value }))
+                    }
+                    step="0.1"
+                    suffix="%"
+                  />
+                  <NumberInput
+                    label="Retailer margin (B)"
+                    name="retailerMarginB"
+                    value={scenarioBOverrides.retailerMargin}
+                    onChange={(e) =>
+                      setScenarioBOverrides((prev) => ({ ...prev, retailerMargin: e.target.value }))
+                    }
+                    step="0.1"
+                    suffix="%"
+                  />
+                </div>
+              </>
+            )}
           </div>
         </Card>
       </div>
 
+      {/* RIGHT COLUMN: Pricing snapshot, Channel view, Recap */}
       <div className="space-y-6">
+        {derivedB && (
+          <Card
+            title="Scenario comparison"
+            kicker={`${inputs.wineName || 'Baseline'} vs ${scenarioBLabel}`}
+          >
+            <div className="text-sm">
+              <div className="grid grid-cols-3 gap-2 py-2 border-b border-slate-200 font-medium">
+                <span className="text-slate-500">Metric</span>
+                <span className="text-right text-slate-500">Baseline</span>
+                <span className="text-right text-slate-500">{scenarioBLabel}</span>
+              </div>
+
+              {[
+                { label: 'Stateside landed case', a: derived.landedCase, b: derivedB.landedCase },
+                { label: 'Wholesale case', a: derived.wholesaleCase, b: derivedB.wholesaleCase },
+                { label: 'SRP per bottle', a: derived.srpBottle, b: derivedB.srpBottle },
+                { label: 'SRP per case', a: derived.srpCase, b: derivedB.srpCase },
+                { label: 'Gross margin / case', a: derived.grossMargin, b: derivedB.grossMargin },
+              ].map((row) => (
+                <div
+                  key={row.label}
+                  className="grid grid-cols-3 gap-2 py-1 border-b border-slate-100"
+                >
+                  <span className="text-slate-600">{row.label}</span>
+                  <span className="text-right tabular-nums">
+                    {formatMoney(row.a)}
+                  </span>
+                  <span className="text-right tabular-nums">
+                    {formatMoney(row.b)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
         <Card title="Pricing snapshot" kicker={inputs.wineName || 'Summary'} accent>
           <SummaryRow
             label="Base case cost"
@@ -351,19 +718,6 @@ const WinePricingCalculator = () => {
                 <p className="text-sm text-slate-600">Revenue on {inputs.casesSold || 0} cases</p>
                 <p className="text-lg font-semibold text-slate-900">{formatMoney(derived.revenue, 'USD')}</p>
               </div>
-            </div>
-
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">By the glass</p>
-              <div className="flex items-center justify-between py-1">
-                <p className="text-sm text-slate-700">Distributor BTG bottle</p>
-                <p className="text-lg font-semibold text-slate-900">{formatMoney(derived.btgBottle, 'USD')}</p>
-              </div>
-              <div className="flex items-center justify-between py-1">
-                <p className="text-sm text-slate-700">Suggested BTG pour (5oz)</p>
-                <p className="text-lg font-semibold text-slate-900">{formatMoney((derived.srpBottle / 5) * 1.25, 'USD')}</p>
-              </div>
-              <p className="text-xs text-amber-800 mt-1">Uses distributor BTG margin of {inputs.distributorBtgMargin}%.</p>
             </div>
           </div>
         </Card>
