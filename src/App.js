@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import './App.css';
 import WinePricingCalculator from './components/WinePricingCalculator';
+import ExperimentalPricingV2 from './components/ExperimentalPricingV2';
 
 function App() {
+  const [view, setView] = useState('default'); // 'default' or 'experimental'
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-amber-50 text-slate-800">
       <div className="max-w-6xl mx-auto px-4 py-10 space-y-10">
@@ -18,9 +21,28 @@ function App() {
             and stateside scenarios, visualize bottle and case economics, and share a polished summary with
             your team.
           </p>
+          <div className="flex justify-center gap-4 mt-4">
+            <button
+              onClick={() => setView('default')}
+              className={`px-4 py-2 rounded-lg font-medium ${
+                view === 'default' ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              Default Calculator
+            </button>
+            <button
+              onClick={() => setView('experimental')}
+              className={`px-4 py-2 rounded-lg font-medium ${
+                view === 'experimental' ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              Experimental V2
+            </button>
+          </div>
         </header>
 
-        <WinePricingCalculator />
+        {view === 'default' && <WinePricingCalculator />}
+        {view === 'experimental' && <ExperimentalPricingV2 />}
       </div>
     </div>
   );
