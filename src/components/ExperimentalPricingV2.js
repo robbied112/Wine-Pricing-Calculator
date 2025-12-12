@@ -1,38 +1,36 @@
 import React, { useState, useMemo } from 'react';
 import {
   TradeActor,
-  PurchaseFrom,
+  Counterparty,
   InventoryContext,
   RecapActor,
   calculatePricingV2,
   resolvePricingModelIdFromContext,
-} from '../lib/pricingEngineV2';
+} from '../lib/pricingEngineV2.clean';
+
 
 const warehouseLabels = {
-  Euro_FOB_Winery: 'Euro FOB (Winery)',
-  Euro_US_Warehouse: 'US Warehouse (Euro Stock)',
-
-  Importer_FOB_Europe: 'Euro FOB (Importer)',
-  Importer_US_Warehouse: 'US Warehouse',
-
-  Supplier_Warehouse: 'US Warehouse',
-  Distributor_Warehouse: 'US Warehouse',
-  US_Winery: 'US Winery',
+  [InventoryContext.Euro_FOB_Winery]: 'Euro FOB (Winery)',
+  [InventoryContext.Euro_Warehouse]: 'Euro Warehouse',
+  [InventoryContext.US_Importer_WH]: 'US Warehouse - Imported',
+  [InventoryContext.US_Distributor_WH]: 'US Warehouse',
+  [InventoryContext.US_Winery]: 'US Winery',
+  [InventoryContext.US_Supplier_WH]: 'US Warehouse',
 };
 
 const allowedWarehouses = {
-  EuroWinery: [
+  [TradeActor.EuroWinery]: [
     InventoryContext.Euro_FOB_Winery,
-    InventoryContext.Euro_US_Warehouse,
+    InventoryContext.US_Importer_WH,
   ],
-  Importer: [
-    InventoryContext.Importer_FOB_Europe,
-    InventoryContext.Importer_US_Warehouse,
+  [TradeActor.Importer]: [
+    InventoryContext.Euro_FOB_Winery,
+    InventoryContext.US_Importer_WH,
   ],
-  Distributor: [InventoryContext.Distributor_Warehouse],
-  DomesticWinery: [InventoryContext.US_Winery],
-  Supplier: [InventoryContext.Supplier_Warehouse],
-  Retailer: [InventoryContext.Distributor_Warehouse],
+  [TradeActor.Distributor]: [InventoryContext.US_Distributor_WH],
+  [TradeActor.DomesticWinery]: [InventoryContext.US_Winery],
+  [TradeActor.Supplier]: [InventoryContext.US_Supplier_WH],
+  [TradeActor.Retailer]: [InventoryContext.US_Distributor_WH],
 };
 
 const roleVisibility = {
@@ -57,7 +55,7 @@ const roleVisibility = {
     retailerMarginPercent: true,
   },
   Distributor: {
-    exCellarBottle: false,
+    exCellarBottle: true,
     exchangeRate: false,
     tariffPercent: false,
     diFreightPerCase: false,
@@ -102,17 +100,38 @@ function getFieldVisibility(role) {
   return roleVisibility[role] || {};
 }
 
+const numericFields = [
+  'exCellarBottle',
+  'exchangeRate',
+  'tariffPercent',
+  'diFreightPerCase',
+  'statesideLogisticsPerCase',
+  'importerMarginPercent',
+  'distributorMarginPercent',
+  'retailerMarginPercent',
+];
+
+function sanitizeStateForRole(prevState, newRole) {
+  const visibility = getFieldVisibility(newRole);
+  const nextState = { ...prevState, whoAmI: newRole };
+
+  numericFields.forEach((field) => {
+    if (!visibility[field]) {
+      nextState[field] = 0;
+    }
+  });
+
+  return nextState;
+}
+
 const ExperimentalPricingV2 = () => {
   const [state, setState] = useState({
-    // 3-question context
     whoAmI: TradeActor.Distributor,
-    buyingFrom: PurchaseFrom.EuroWinery,
-    inventory: InventoryContext.Euro_FOB_Winery,
+    sellingTo: Counterparty.Retailer,
+    inventory: InventoryContext.US_Distributor_WH,
 
-    // recap view
     recapActor: RecapActor.Supplier,
 
-    // numeric inputs
     exCellarBottle: 5,
     casePack: 12,
     exchangeRate: 1.16,
@@ -143,42 +162,52 @@ const ExperimentalPricingV2 = () => {
   const handleSelectChange = (field) => (e) => {
     const value = e.target.value;
     setState((prev) => {
-      const newState = { ...prev, [field]: value };
+      let newState = { ...prev, [field]: value };
 
       if (field === 'whoAmI') {
-        // Reset sellTo and inventory based on whoAmI
-        newState.buyingFrom = null;
-        newState.inventory = null;
-      }
+        const role = value;
 
-      if (field === 'buyingFrom') {
-        // Reset inventory if sellTo changes
-        newState.inventory = null;
-      }
+        newState = sanitizeStateForRole(prev, role);
 
-      // Auto-fill or constrain inventoryLocation based on role and sellTo
-      if (field === 'whoAmI' || field === 'buyingFrom') {
-        switch (newState.whoAmI) {
+        // Set a sensible default downstream counterparty for the role.
+        // Avoids state.sellingTo being empty while the select shows the first option.
+        switch (role) {
           case TradeActor.EuroWinery:
-            newState.inventory =
-              newState.buyingFrom === PurchaseFrom.Distributor
-                ? InventoryContext.Distributor_Warehouse
-                : InventoryContext.Euro_FOB_Winery;
-            break;
           case TradeActor.Importer:
-            newState.inventory =
-              newState.buyingFrom === PurchaseFrom.Distributor
-                ? InventoryContext.Importer_US_Warehouse
-                : InventoryContext.Euro_FOB_Winery;
+          case TradeActor.DomesticWinery:
+          case TradeActor.Supplier:
+            newState.sellingTo = Counterparty.Distributor;
             break;
           case TradeActor.Distributor:
-            newState.inventory = InventoryContext.Distributor_Warehouse;
+            newState.sellingTo = Counterparty.Retailer;
+            break;
+          case TradeActor.Retailer:
+            newState.sellingTo = '';
+            break;
+          default:
+            newState.sellingTo = '';
+            break;
+        }
+        newState.inventory = null;
+
+        switch (role) {
+          case TradeActor.EuroWinery:
+            newState.inventory = InventoryContext.Euro_FOB_Winery;
+            break;
+          case TradeActor.Importer:
+            newState.inventory = InventoryContext.Euro_FOB_Winery;
+            break;
+          case TradeActor.Distributor:
+            newState.inventory = InventoryContext.US_Distributor_WH;
             break;
           case TradeActor.DomesticWinery:
             newState.inventory = InventoryContext.US_Winery;
             break;
           case TradeActor.Supplier:
-            newState.inventory = InventoryContext.Supplier_Warehouse;
+            newState.inventory = InventoryContext.US_Supplier_WH;
+            break;
+          case TradeActor.Retailer:
+            newState.inventory = InventoryContext.US_Distributor_WH;
             break;
           default:
             break;
@@ -189,20 +218,30 @@ const ExperimentalPricingV2 = () => {
     });
   };
 
-  const filteredSellToOptions = useMemo(() => {
+  const filteredSellingToOptions = useMemo(() => {
     switch (state.whoAmI) {
       case TradeActor.EuroWinery:
-        return [PurchaseFrom.Importer, PurchaseFrom.Distributor];
+        return [
+          Counterparty.Importer,
+          Counterparty.Distributor,
+          Counterparty.Retailer,
+        ];
       case TradeActor.Importer:
-        return [PurchaseFrom.Distributor];
+        return [Counterparty.Distributor, Counterparty.Retailer];
       case TradeActor.Distributor:
-        return [PurchaseFrom.Retailer];
+        return [Counterparty.Retailer];
       case TradeActor.DomesticWinery:
-        return [PurchaseFrom.Distributor, PurchaseFrom.Retailer];
+        return [
+          Counterparty.Distributor,
+          Counterparty.Retailer,
+          Counterparty.Supplier,
+        ];
       case TradeActor.Supplier:
-        return [PurchaseFrom.Distributor, PurchaseFrom.Retailer];
+        return [Counterparty.Distributor, Counterparty.Retailer];
+      case TradeActor.Retailer:
+        return []; // no downstream in this tool
       default:
-        return Object.values(PurchaseFrom);
+        return [];
     }
   }, [state.whoAmI]);
 
@@ -221,16 +260,16 @@ const ExperimentalPricingV2 = () => {
     () =>
       resolvePricingModelIdFromContext({
         whoAmI: state.whoAmI,
-        buyingFrom: state.buyingFrom,
+        sellingTo: state.sellingTo,
         inventory: state.inventory,
       }),
-    [state.whoAmI, state.buyingFrom, state.inventory]
+    [state.whoAmI, state.sellingTo, state.inventory]
   );
 
-  const output = useMemo(
-    () => calculatePricingV2({ ...state, modelId }),
-    [state, modelId]
-  );
+  const output = useMemo(() => calculatePricingV2({ ...state, modelId }), [
+    state,
+    modelId,
+  ]);
 
   const formatMoney = (value) => {
     if (value == null || Number.isNaN(value)) return '-';
@@ -264,22 +303,27 @@ const ExperimentalPricingV2 = () => {
           <label className="text-sm font-medium text-slate-800">
             Who are you selling to?
             <select
-              value={state.buyingFrom}
-              onChange={handleSelectChange('buyingFrom')}
+              value={state.sellingTo || ''}
+              onChange={handleSelectChange('sellingTo')}
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+              disabled={filteredSellingToOptions.length === 0}
             >
-              {filteredSellToOptions.map((source) => (
-                <option key={source} value={source}>
-                  {source}
-                </option>
-              ))}
+              {filteredSellingToOptions.length === 0 ? (
+                <option value="">No options</option>
+              ) : (
+                filteredSellingToOptions.map((cp) => (
+                  <option key={cp} value={cp}>
+                    {cp}
+                  </option>
+                ))
+              )}
             </select>
           </label>
 
           <label className="text-sm font-medium text-slate-800">
             Where is the inventory?
             <select
-              value={state.inventory}
+              value={state.inventory || ''}
               onChange={handleSelectChange('inventory')}
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
             >
@@ -412,6 +456,17 @@ const ExperimentalPricingV2 = () => {
               ))}
             </select>
           </label>
+
+          <label className="text-sm font-medium text-slate-800">
+            Case Pack
+            <input
+              type="number"
+              step="1"
+              value={state.casePack}
+              onChange={handleIntChange('casePack')}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+            />
+          </label>
         </div>
       </section>
 
@@ -462,11 +517,6 @@ const ExperimentalPricingV2 = () => {
             </span>
           </div>
         </div>
-
-        {/* Optional debug JSON - comment out if you don't want it */}
-        {/* <pre className="mt-4 text-xs bg-slate-50 rounded-md p-3 overflow-x-auto">
-          {JSON.stringify(output, null, 2)}
-        </pre> */}
       </section>
     </div>
   );

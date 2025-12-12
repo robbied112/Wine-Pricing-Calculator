@@ -1,18 +1,18 @@
 import {
-  BusinessType,
-  InventoryLocation,
-  SellTo,
+  TradeActor,
+  Counterparty,
+  InventoryContext,
   calculatePricingV2,
-} from '../pricingEngineV2';
+  resolvePricingModelIdFromContext,
+} from '../pricingEngineV2.clean';
 
 describe('pricingEngineV2 core scenarios', () => {
   // Helper to build a complete state with sensible defaults
   function makeState(overrides = {}) {
     return {
-      businessType: BusinessType.DomesticWinery,
-      inventoryLocation: InventoryLocation.USWinery,
-      sellTo: SellTo.Distributor,
-      currency: 'USD',
+      whoAmI: TradeActor.DomesticWinery,
+      sellingTo: Counterparty.Distributor,
+      inventory: InventoryContext.US_Winery,
       exchangeRate: 1.0,
       casePack: 12,
       exCellarBottle: 10.0,
@@ -28,15 +28,22 @@ describe('pricingEngineV2 core scenarios', () => {
 
   test('DomesticWinery → Distributor uses margin on selling price', () => {
     const state = makeState({
-      businessType: BusinessType.DomesticWinery,
-      inventoryLocation: InventoryLocation.USWinery,
-      sellTo: SellTo.Distributor,
+      whoAmI: TradeActor.DomesticWinery,
+      sellingTo: Counterparty.Distributor,
+      inventory: InventoryContext.US_Winery,
       exCellarBottle: 10,
       casePack: 12,
       statesideLogisticsPerCase: 10,
       distributorMarginPercent: 25,
       retailerMarginPercent: 33,
     });
+
+    const modelId = resolvePricingModelIdFromContext({
+      whoAmI: state.whoAmI,
+      sellingTo: state.sellingTo,
+      inventory: state.inventory,
+    });
+    expect(modelId).toBe('Domestic_Winery_ToDistributor');
 
     const result = calculatePricingV2(state);
 
@@ -51,15 +58,22 @@ describe('pricingEngineV2 core scenarios', () => {
 
   test('DomesticWinery → Retail (self distribution)', () => {
     const state = makeState({
-      businessType: BusinessType.DomesticWinery,
-      inventoryLocation: InventoryLocation.USWinery,
-      sellTo: SellTo.Retailer,
+      whoAmI: TradeActor.DomesticWinery,
+      sellingTo: Counterparty.Retailer,
+      inventory: InventoryContext.US_Winery,
       exCellarBottle: 10,
       casePack: 12,
       statesideLogisticsPerCase: 10,
       retailerMarginPercent: 33,
       distributorMarginPercent: 0,
     });
+
+    const modelId = resolvePricingModelIdFromContext({
+      whoAmI: state.whoAmI,
+      sellingTo: state.sellingTo,
+      inventory: state.inventory,
+    });
+    expect(modelId).toBe('Domestic_Winery_ToRetailer');
 
     const result = calculatePricingV2(state);
 
@@ -73,9 +87,9 @@ describe('pricingEngineV2 core scenarios', () => {
 
   test('Euro winery → importer → distributor, DI (ImportedModelDI)', () => {
     const state = makeState({
-      businessType: BusinessType.Imported,
-      inventoryLocation: InventoryLocation.EuroWinery,
-      sellTo: SellTo.Distributor,
+      whoAmI: TradeActor.EuroWinery,
+      sellingTo: Counterparty.Distributor,
+      inventory: InventoryContext.Euro_FOB_Winery,
       exCellarBottle: 5,
       casePack: 12,
       exchangeRate: 1.16,
@@ -85,6 +99,13 @@ describe('pricingEngineV2 core scenarios', () => {
       distributorMarginPercent: 30,
       retailerMarginPercent: 33,
     });
+
+    const modelId = resolvePricingModelIdFromContext({
+      whoAmI: state.whoAmI,
+      sellingTo: state.sellingTo,
+      inventory: state.inventory,
+    });
+    expect(modelId).toBe('ImportedModelDI');
 
     const result = calculatePricingV2(state);
 
@@ -99,11 +120,48 @@ describe('pricingEngineV2 core scenarios', () => {
     expect(result.recap.retailerMarginPerCase).toBeCloseTo(89.60, 2);
   });
 
+  test('Importer → Distributor, Euro FOB (Winery) resolves to ImportedModelDI', () => {
+    const state = makeState({
+      whoAmI: TradeActor.Importer,
+      sellingTo: Counterparty.Distributor,
+      inventory: InventoryContext.Euro_FOB_Winery,
+      exCellarBottle: 5,
+      casePack: 12,
+      exchangeRate: 1.16,
+      diFreightPerCase: 13,
+      tariffPercent: 15,
+      importerMarginPercent: 30,
+      distributorMarginPercent: 30,
+      retailerMarginPercent: 33,
+    });
+
+    const modelId = resolvePricingModelIdFromContext({
+      whoAmI: state.whoAmI,
+      sellingTo: state.sellingTo,
+      inventory: state.inventory,
+    });
+    expect(modelId).toBe('ImportedModelDI');
+
+    const result = calculatePricingV2(state);
+    expect(result.model).toBe('ImportedModelDI');
+    expect(result.wholesaleCase).toBeGreaterThan(0);
+    expect(result.srpBottle).toBeGreaterThan(0);
+  });
+
+  test('Resolver tolerates inventory label strings (Euro FOB (Winery))', () => {
+    const modelId = resolvePricingModelIdFromContext({
+      whoAmI: TradeActor.Importer,
+      sellingTo: Counterparty.Distributor,
+      inventory: 'Euro FOB (Winery)',
+    });
+    expect(modelId).toBe('ImportedModelDI');
+  });
+
   test('Euro winery → importer WH → distributor, stateside (ImportedModelSS)', () => {
     const state = makeState({
-      businessType: BusinessType.Imported,
-      inventoryLocation: InventoryLocation.USImporterWH,
-      sellTo: SellTo.Distributor,
+      whoAmI: TradeActor.EuroWinery,
+      sellingTo: Counterparty.Distributor,
+      inventory: InventoryContext.US_Importer_WH,
       exCellarBottle: 5,
       casePack: 12,
       exchangeRate: 1.16,
@@ -114,6 +172,13 @@ describe('pricingEngineV2 core scenarios', () => {
       distributorMarginPercent: 30,
       retailerMarginPercent: 33,
     });
+
+    const modelId = resolvePricingModelIdFromContext({
+      whoAmI: state.whoAmI,
+      sellingTo: state.sellingTo,
+      inventory: state.inventory,
+    });
+    expect(modelId).toBe('ImportedModelSS');
 
     const result = calculatePricingV2(state);
 
@@ -128,9 +193,9 @@ describe('pricingEngineV2 core scenarios', () => {
 
   test('Euro winery → retailer direct, DI (Euro_DI_ToRetailer)', () => {
     const state = makeState({
-      businessType: BusinessType.Imported, // or BusinessType.EuroWinery if you introduce that
-      inventoryLocation: InventoryLocation.EuroWinery,
-      sellTo: SellTo.Retailer,
+      whoAmI: TradeActor.EuroWinery,
+      sellingTo: Counterparty.Retailer,
+      inventory: InventoryContext.Euro_FOB_Winery,
       exCellarBottle: 5,
       casePack: 12,
       exchangeRate: 1.16,
@@ -142,6 +207,13 @@ describe('pricingEngineV2 core scenarios', () => {
       distributorMarginPercent: 0,
     });
 
+    const modelId = resolvePricingModelIdFromContext({
+      whoAmI: state.whoAmI,
+      sellingTo: state.sellingTo,
+      inventory: state.inventory,
+    });
+    expect(modelId).toBe('Euro_DI_ToRetailer');
+
     const result = calculatePricingV2(state);
 
     expect(result.model).toBe('Euro_DI_ToRetailer');
@@ -150,5 +222,71 @@ describe('pricingEngineV2 core scenarios', () => {
     expect(result.wholesaleBottle).toBeCloseTo(7.75, 2);
     expect(result.srpBottle).toBeCloseTo(11.57, 2);
     expect(result.recap.retailerMarginPerCase).toBeCloseTo(45.83, 2);
+  });
+
+  test('Back-compat: calculatePricingV2 accepts buyingFrom when sellingTo is missing', () => {
+    const state = makeState({
+      whoAmI: TradeActor.EuroWinery,
+      sellingTo: null,
+      buyingFrom: Counterparty.Retailer,
+      inventory: InventoryContext.Euro_FOB_Winery,
+      exCellarBottle: 5,
+      casePack: 12,
+      exchangeRate: 1.16,
+      diFreightPerCase: 13,
+      tariffPercent: 15,
+      retailerMarginPercent: 33,
+      importerMarginPercent: 0,
+      distributorMarginPercent: 0,
+    });
+
+    const result = calculatePricingV2(state);
+    expect(result.model).toBe('Euro_DI_ToRetailer');
+  });
+
+  test('Distributor → Retailer resolves and calculates (Distributor_ToRetailer)', () => {
+    const state = makeState({
+      whoAmI: TradeActor.Distributor,
+      sellingTo: Counterparty.Retailer,
+      inventory: InventoryContext.US_Distributor_WH,
+      exCellarBottle: 10,
+      casePack: 12,
+      statesideLogisticsPerCase: 10,
+      distributorMarginPercent: 30,
+      retailerMarginPercent: 33,
+    });
+
+    const modelId = resolvePricingModelIdFromContext({
+      whoAmI: state.whoAmI,
+      sellingTo: state.sellingTo,
+      inventory: state.inventory,
+    });
+    expect(modelId).toBe('Distributor_ToRetailer');
+
+    const result = calculatePricingV2(state);
+    expect(result.model).toBe('Distributor_ToRetailer');
+    expect(result.wholesaleCase).toBeGreaterThan(0);
+    expect(result.srpBottle).toBeGreaterThan(0);
+  });
+
+  test('calculatePricingV2 trims modelId (guards against UnknownModel)', () => {
+    const state = makeState({
+      modelId: 'ImportedModelDI ',
+      whoAmI: TradeActor.Importer,
+      sellingTo: Counterparty.Distributor,
+      inventory: InventoryContext.Euro_FOB_Winery,
+      exCellarBottle: 5,
+      casePack: 12,
+      exchangeRate: 1.16,
+      diFreightPerCase: 13,
+      tariffPercent: 15,
+      importerMarginPercent: 30,
+      distributorMarginPercent: 30,
+      retailerMarginPercent: 33,
+    });
+
+    const result = calculatePricingV2(state);
+    expect(result.model).toBe('ImportedModelDI');
+    expect(result.wholesaleCase).toBeGreaterThan(0);
   });
 });

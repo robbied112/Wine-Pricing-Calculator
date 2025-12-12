@@ -1,21 +1,26 @@
-import { calculatePricing } from './pricingEngine';
+// Backwards-compatible entrypoint: keep existing imports working.
+export * from './pricingEngineV2.clean';
 
-// ---- ENUMS ----
-export const BusinessType = {
-  DomesticWinery: 'DomesticWinery',
-  Imported: 'Imported',
-};
+/*
 
-export const InventoryLocation = {
-  USWinery: 'USWinery',
+// Who you are selling to (counterparty).
+export const Counterparty = {
   EuroWinery: 'EuroWinery',
-  USImporterWH: 'USImporterWH',
-};
-
-export const SellTo = {
+  DomesticWinery: 'DomesticWinery',
+  Importer: 'Importer',
+  Supplier: 'Supplier',
   Distributor: 'Distributor',
   Retailer: 'Retailer',
-  Importer: 'Importer',
+};
+
+// Where the inventory physically is.
+export const InventoryContext = {
+  Euro_FOB_Winery: 'Euro_FOB_Winery', // Euro FOB / Winery
+  Euro_Warehouse: 'Euro_Warehouse', // Euro warehouse / 3PL
+  US_Importer_WH: 'US_Importer_WH', // US Warehouse – Imported
+  US_Distributor_WH: 'US_Distributor_WH', // Distributor US WH
+  US_Winery: 'US_Winery', // Domestic winery
+  US_Supplier_WH: 'US_Supplier_WH', // Supplier US WH
 };
 
 export const RecapActor = {
@@ -25,38 +30,10 @@ export const RecapActor = {
   Retailer: 'Retailer',
 };
 
-// ---- NEW ENUMS FOR 3-QUESTION FLOW ----
-export const TradeActor = {
-  EuroWinery: 'EuroWinery',
-  DomesticWinery: 'DomesticWinery',
-  Importer: 'Importer',
-  Supplier: 'Supplier',
-  Distributor: 'Distributor',
-  Retailer: 'Retailer',
-};
-
-export const PurchaseFrom = {
-  EuroWinery: 'EuroWinery',
-  USWinery: 'USWinery',
-  Importer: 'Importer',
-  Supplier: 'Supplier',
-  Distributor: 'Distributor',
-};
-
-export const InventoryContext = {
-  Euro_FOB_Winery: 'Euro_FOB_Winery',
-  Euro_US_Warehouse: 'Euro_US_Warehouse',
-  Importer_FOB_Europe: 'Importer_FOB_Europe',
-  Importer_US_Warehouse: 'Importer_US_Warehouse',
-  US_Winery: 'US_Winery',
-  Supplier_Warehouse: 'Supplier_Warehouse',
-  Distributor_Warehouse: 'Distributor_Warehouse',
-};
-
 // ---- HELPER ----
 function applyMarginOnSelling(cost, marginPercent) {
   const m = (marginPercent || 0) / 100;
-  if (m <= 0) return cost;
+  if (m <= 0 || !isFinite(m) || m >= 1) return cost;
   return cost / (1 - m);
 }
 
@@ -64,10 +41,9 @@ function applyMarginOnSelling(cost, marginPercent) {
 function calculateDomesticWineryToDistributor(input) {
   const casePack = input.casePack || 12;
 
-  const wineryRevenuePerCase = input.exCellarBottle * casePack;
+  const wineryRevenuePerCase = (input.exCellarBottle || 0) * casePack;
 
-  const landedCase =
-    wineryRevenuePerCase + (input.statesideLogisticsPerCase || 0);
+  const landedCase = wineryRevenuePerCase + (input.statesideLogisticsPerCase || 0);
 
   const wholesaleCase = applyMarginOnSelling(
     landedCase,
@@ -92,7 +68,7 @@ function calculateDomesticWineryToDistributor(input) {
     wholesaleBottle,
     srpBottle,
     wineryRevenuePerCase,
-    recapGrossProfitPerCase: undefined,
+    recapGrossProfitPerCase: distributorMarginPerCase,
     recap: {
       distributorMarginPerCase,
       retailerMarginPerCase,
@@ -104,19 +80,13 @@ function calculateDomesticWineryToDistributor(input) {
 function calculateDomesticWineryToRetail(input) {
   const casePack = input.casePack || 12;
 
-  // Winery base transfer price per case
-  const wineryBaseCase = input.exCellarBottle * casePack;
+  const wineryBaseCase = (input.exCellarBottle || 0) * casePack;
 
-  // Landed case after winery pays freight to accounts
-  const landedCase =
-    wineryBaseCase + (input.statesideLogisticsPerCase || 0);
+  const landedCase = wineryBaseCase + (input.statesideLogisticsPerCase || 0);
 
-  // In self-distribution, there is no distributor margin step.
-  // The winery's wholesale price to the account is the landed case cost.
   const wholesaleCase = landedCase;
   const wholesaleBottle = wholesaleCase / casePack;
 
-  // SRP is calculated by applying retailer margin on selling price
   const srpBottle = applyMarginOnSelling(
     wholesaleBottle,
     input.retailerMarginPercent
@@ -131,44 +101,33 @@ function calculateDomesticWineryToRetail(input) {
     wholesaleCase,
     wholesaleBottle,
     srpBottle,
-
-    // Winery revenue per case is what the account pays (wholesaleCase)
     wineryRevenuePerCase: wholesaleCase,
-    recapGrossProfitPerCase: undefined,
-
+    recapGrossProfitPerCase: retailerMarginPerCase,
     recap: {
       retailerMarginPerCase,
     },
   };
 }
 
-// ---- IMPORTED MODEL DI SALES ----
+// ---- IMPORTED MODEL DI SALES (Importer/Euro Winery → Distributor) ----
 function calculateImportedModelDI(input) {
   const casePack = input.casePack || 12;
 
-  // base cost: ex-cellar * casePack * FX
   const importerCostCaseUSD =
-    (input.exCellarBottle || 0) *
-    (input.casePack || 0) *
-    (input.exchangeRate || 0);
+    (input.exCellarBottle || 0) * casePack * (input.exchangeRate || 0);
 
   const importerMargin = (input.importerMarginPercent || 0) / 100;
 
-  // importer margin is a margin on selling price, not a markup
   const importerFOBCaseUSD =
     importerMargin >= 1
-      ? importerCostCaseUSD // guard against 100%+
+      ? importerCostCaseUSD
       : importerCostCaseUSD / (1 - importerMargin);
 
-  // tariff is charged on importer FOB
-  const tariffCaseUSD =
-    importerFOBCaseUSD * ((input.tariffPercent || 0) / 100);
+  const tariffCaseUSD = importerFOBCaseUSD * ((input.tariffPercent || 0) / 100);
 
   const diFreightCaseUSD = input.diFreightPerCase || 0;
 
-  // landed into distributor for DI model
-  const distributorLandedCaseUSD =
-    importerFOBCaseUSD + tariffCaseUSD + diFreightCaseUSD;
+  const distributorLandedCaseUSD = importerFOBCaseUSD + tariffCaseUSD + diFreightCaseUSD;
 
   const distributorMargin = (input.distributorMarginPercent || 0) / 100;
 
@@ -177,20 +136,15 @@ function calculateImportedModelDI(input) {
       ? distributorLandedCaseUSD
       : distributorLandedCaseUSD / (1 - distributorMargin);
 
-  const wholesaleBottleUSD =
-    input.casePack ? wholesaleCaseUSD / input.casePack : 0;
+  const wholesaleBottleUSD = casePack ? wholesaleCaseUSD / casePack : 0;
 
   const retailerMargin = (input.retailerMarginPercent || 0) / 100;
 
   const srpCaseUSD =
-    retailerMargin >= 1
-      ? wholesaleCaseUSD
-      : wholesaleCaseUSD / (1 - retailerMargin);
+    retailerMargin >= 1 ? wholesaleCaseUSD : wholesaleCaseUSD / (1 - retailerMargin);
 
-  const srpBottleUSD =
-    input.casePack ? srpCaseUSD / input.casePack : 0;
+  const srpBottleUSD = casePack ? srpCaseUSD / casePack : 0;
 
-  // recap:
   const distributorGPPerCase = wholesaleCaseUSD - distributorLandedCaseUSD;
   const retailerGPPerCase = srpCaseUSD - wholesaleCaseUSD;
 
@@ -210,38 +164,27 @@ function calculateImportedModelDI(input) {
   };
 }
 
-// ---- IMPORTED MODEL SS SALES ----
+// ---- IMPORTED MODEL SS SALES (Importer/Euro Winery US WH → Distributor) ----
 function calculateImportedModelSS(input) {
   const casePack = input.casePack || 12;
 
-  // base winery cost in USD
   const baseCostCaseUSD =
-    (input.exCellarBottle || 0) *
-    (input.casePack || 0) *
-    (input.exchangeRate || 0);
+    (input.exCellarBottle || 0) * casePack * (input.exchangeRate || 0);
 
-  // importer pays DI freight + tariff to get to US warehouse
   const diFreightCaseUSD = input.diFreightPerCase || 0;
 
-  const tariffOnBaseUSD =
-    baseCostCaseUSD * ((input.tariffPercent || 0) / 100);
+  const tariffOnBaseUSD = baseCostCaseUSD * ((input.tariffPercent || 0) / 100);
 
-  const importerLaidInCaseUSD =
-    baseCostCaseUSD + diFreightCaseUSD + tariffOnBaseUSD;
+  const importerLaidInCaseUSD = baseCostCaseUSD + diFreightCaseUSD + tariffOnBaseUSD;
 
   const importerMargin = (input.importerMarginPercent || 0) / 100;
 
-  // margin on selling price for importer FOB from US warehouse
   const importerFOBCaseUSD =
-    importerMargin >= 1
-      ? importerLaidInCaseUSD
-      : importerLaidInCaseUSD / (1 - importerMargin);
+    importerMargin >= 1 ? importerLaidInCaseUSD : importerLaidInCaseUSD / (1 - importerMargin);
 
-  // distributor then pays only stateside logistics from importer WH to their WH
   const statesideCaseUSD = input.statesideLogisticsPerCase || 0;
 
-  const distributorLandedCaseUSD =
-    importerFOBCaseUSD + statesideCaseUSD;
+  const distributorLandedCaseUSD = importerFOBCaseUSD + statesideCaseUSD;
 
   const distributorMargin = (input.distributorMarginPercent || 0) / 100;
 
@@ -250,18 +193,14 @@ function calculateImportedModelSS(input) {
       ? distributorLandedCaseUSD
       : distributorLandedCaseUSD / (1 - distributorMargin);
 
-  const wholesaleBottleUSD =
-    input.casePack ? wholesaleCaseUSD / input.casePack : 0;
+  const wholesaleBottleUSD = casePack ? wholesaleCaseUSD / casePack : 0;
 
   const retailerMargin = (input.retailerMarginPercent || 0) / 100;
 
   const srpCaseUSD =
-    retailerMargin >= 1
-      ? wholesaleCaseUSD
-      : wholesaleCaseUSD / (1 - retailerMargin);
+    retailerMargin >= 1 ? wholesaleCaseUSD : wholesaleCaseUSD / (1 - retailerMargin);
 
-  const srpBottleUSD =
-    input.casePack ? srpCaseUSD / input.casePack : 0;
+  const srpBottleUSD = casePack ? srpCaseUSD / casePack : 0;
 
   const distributorGPPerCase = wholesaleCaseUSD - distributorLandedCaseUSD;
   const retailerGPPerCase = srpCaseUSD - wholesaleCaseUSD;
@@ -282,29 +221,12 @@ function calculateImportedModelSS(input) {
   };
 }
 
-// ---- IMPORTED MODEL NOT IMPLEMENTED (PLACEHOLDER) ----
-function calculateImportedPlaceholder(input) {
-  return {
-    model: 'ImportedModelNotImplemented',
-    casePack: input.casePack || 12,
-    landedCase: 0,
-    wholesaleCase: 0,
-    wholesaleBottle: 0,
-    srpBottle: 0,
-    wineryRevenuePerCase: undefined,
-    recapGrossProfitPerCase: undefined,
-    recap: {},
-  };
-}
-
-// ---- EURO WINERY -> RETAIL (DIRECT IMPORT, NO IMPORTER/DISTRIBUTOR) ----
+// ---- EURO WINERY → RETAIL (DI, no importer/distributor) ----
 function calculateEuroWineryToRetailerDI(input) {
   const casePack = input.casePack || 12;
 
-  // base ex-cellar cost in EUR per case
   const baseExCellarCaseEUR = (input.exCellarBottle || 0) * casePack;
 
-  // convert to USD
   const baseCaseUSD = baseExCellarCaseEUR * (input.exchangeRate || 0);
 
   const tPct = (input.tariffPercent || 0) / 100;
@@ -312,20 +234,16 @@ function calculateEuroWineryToRetailerDI(input) {
 
   const diFreightCaseUSD = input.diFreightPerCase || 0;
 
-  // retailer’s landed cost: pays ex-cellar + tariff + DI freight
-  const retailerLandedCaseUSD =
-    baseCaseUSD + tariffCaseUSD + diFreightCaseUSD;
+  const retailerLandedCaseUSD = baseCaseUSD + tariffCaseUSD + diFreightCaseUSD;
 
   const retailerMargin = (input.retailerMarginPercent || 0) / 100;
 
-  // SRP is margin ON selling price, not markup
   const srpCaseUSD =
     retailerMargin >= 1
       ? retailerLandedCaseUSD
       : retailerLandedCaseUSD / (1 - retailerMargin);
 
-  const srpBottleUSD =
-    casePack > 0 ? srpCaseUSD / casePack : 0;
+  const srpBottleUSD = casePack > 0 ? srpCaseUSD / casePack : 0;
 
   const retailerMarginPerCase = srpCaseUSD - retailerLandedCaseUSD;
 
@@ -333,9 +251,8 @@ function calculateEuroWineryToRetailerDI(input) {
     model: 'Euro_DI_ToRetailer',
     casePack,
     landedCase: retailerLandedCaseUSD,
-    wholesaleCase: retailerLandedCaseUSD, // retailer's landed cost
-    wholesaleBottle:
-      casePack > 0 ? retailerLandedCaseUSD / casePack : 0,
+    wholesaleCase: retailerLandedCaseUSD,
+    wholesaleBottle: casePack > 0 ? retailerLandedCaseUSD / casePack : 0,
     srpBottle: srpBottleUSD,
     wineryRevenuePerCase: baseCaseUSD,
     recapGrossProfitPerCase: retailerMarginPerCase,
@@ -345,166 +262,249 @@ function calculateEuroWineryToRetailerDI(input) {
   };
 }
 
-// ---- PRICING MODEL IDENTIFIERS ----
-/**
- * @typedef {"Imported_DI_ToDistributor" | "Imported_DI_ToRetailer" | "Imported_SS_ToDistributor" | "Imported_SS_ToRetailer" |
- *           "Euro_DI_ToDistributor" | "Euro_DI_ToRetailer" | "Euro_SS_ToDistributor" | "Euro_SS_ToRetailer" |
- *           "Domestic_Winery_ToDistributor" | "Domestic_Winery_ToRetailer" | "Domestic_Distributor_ToRetailer" |
- *           "Domestic_Supplier_ToDistributor" | "Domestic_Supplier_ToRetailer"} PricingModelId
- */
+// ---- DOMESTIC SUPPLIER -> DISTRIBUTOR ----
+function calculateDomesticSupplierToDistributor(input) {
+  const casePack = input.casePack || 12;
 
-/**
- * @type {Record<PricingModelId, {
- *   hasFX: boolean;
- *   hasTariff: boolean;
- *   hasDIFreight: boolean;
- *   hasStatesideLogistics: boolean;
- *   hasImporter: boolean;
- *   hasSupplier: boolean;
- *   hasDistributor: boolean;
- *   hasRetailer: boolean;
- * }>
- */
+  const supplierBaseCase = (input.exCellarBottle || 0) * casePack;
 
-// ---- ROLE ENUMS / TYPES ----
-/**
- * Who is using the tool.
- * @typedef {"EuroWinery" | "DomesticWinery" | "Supplier" | "Importer" | "Distributor" | "Retailer"} TradeActor
- */
+  const distributorLaidInCase = supplierBaseCase + (input.statesideLogisticsPerCase || 0);
 
-/**
- * Who they are buying from.
- * @typedef {"EuroWinery" | "DomesticWinery" | "Importer" | "Supplier"} PurchaseFrom
- */
+  const wholesaleCase = applyMarginOnSelling(
+    distributorLaidInCase,
+    input.distributorMarginPercent || 0
+  );
 
-/**
- * Where the inventory physically sits right now.
- * "Euro"  = inventory in Europe (FOB or EU warehouse)
- * "US"    = inventory in the United States (importer or domestic warehouse)
- * @typedef {"Euro" | "US"} InventoryContext
- */
+  const wholesaleBottle = wholesaleCase / casePack;
 
-/**
- * Maps the three question UX into a PricingModelId.
- *
- * whoAmI       - one of:  "EuroWinery" | "DomesticWinery" | "Supplier" | "Importer" | "Distributor" | "Retailer"
- * buyingFrom   - one of:  "EuroWinery" | "DomesticWinery" | "Importer" | "Supplier"
- * inventory    - one of:  "Euro" | "US"  (are you buying from Europe or from US based stock)
- *
- * Returns a PricingModelId string, or null if the combination is invalid or unsupported.
- *
- * High level rules:
- * - Importer buys from EuroWinery only.
- * - Supplier buys from DomesticWinery only.
- * - Distributor can buy from EuroWinery, DomesticWinery, Importer, or Supplier.
- * - Retailer can buy from EuroWinery, DomesticWinery, Importer, or Supplier.
- * - Inventory "Euro" means a DI style flow.
- * - Inventory "US" means stateside stock (SS) flows.
- *
- * @param {{ whoAmI: TradeActor; buyingFrom: PurchaseFrom; inventory: InventoryContext }} params
- * @returns {PricingModelId | null}
- */
-export function resolvePricingModelIdFromContext({ whoAmI, buyingFrom, inventory }) {
-  // Importer pricing flows: importer is setting their sell price to distributors.
-  if (whoAmI === "Importer") {
-    if (inventory === "Euro_FOB_Winery") {
-      // DI scenario: Euro → importer → distributor
-      return "ImportedModelDI";
-    }
-    if (inventory === "Importer_US_Warehouse") {
-      // Stateside scenario: Euro → importer US WH → distributor
-      return "ImportedModelSS";
-    }
-  }
+  const srpBottle = applyMarginOnSelling(
+    wholesaleBottle,
+    input.retailerMarginPercent || 0
+  );
+  const srpCase = srpBottle * casePack;
 
-  // Euro Winery pricing flows: winery selling to distributor (DI or SS)
-  if (whoAmI === "EuroWinery") {
-    // Euro Winery selling FOB from Europe → Distributor (DI flow)
-    if (inventory === "Euro_FOB_Winery") {
-      return "ImportedModelDI";
-    }
+  const distributorMarginPerCase = wholesaleCase - distributorLaidInCase;
+  const retailerMarginPerCase = srpCase - wholesaleCase;
 
-    // Euro Winery selling pre-landed to Distributor (SS flow)
-    if (inventory === "Euro_US_Warehouse") {
-      return "ImportedModelSS";
-    }
-  }
-
-  // Guard invalid combinations early
-  if (!whoAmI || !buyingFrom || !inventory) return null;
-
-  // 1. Imported flows - buying from an Importer
-  if (buyingFrom === "Importer") {
-    if (inventory === "Euro") {
-      // Importer is still holding stock in Europe. DI flows.
-      if (whoAmI === "Distributor") return "Imported_DI_ToDistributor";
-      if (whoAmI === "Retailer")    return "Imported_DI_ToRetailer";
-    } else if (inventory === "US") {
-      // Importer has already brought stock stateside. SS flows.
-      if (whoAmI === "Distributor") return "Imported_SS_ToDistributor";
-      if (whoAmI === "Retailer")    return "Imported_SS_ToRetailer";
-    }
-    return null;
-  }
-
-  // 2. Euro winery direct flows (no importer in the middle)
-  if (buyingFrom === "EuroWinery") {
-    if (inventory === "Euro") {
-      // DI style. Distributor or retailer is taking on DI freight and tariffs.
-      if (whoAmI === "Distributor") return "Euro_DI_ToDistributor";
-      if (whoAmI === "Retailer")    return "Euro_DI_ToRetailer";
-    } else if (inventory === "US") {
-      // Euro stock already in a US warehouse (could be 3PL or forward warehouse).
-      if (whoAmI === "Distributor") return "Euro_SS_ToDistributor";
-      if (whoAmI === "Retailer")    return "Euro_SS_ToRetailer";
-    }
-    return null;
-  }
-
-  // 3. Domestic winery flows
-  if (buyingFrom === "DomesticWinery") {
-    // Domestic is always effectively US inventory for our purposes.
-    if (whoAmI === "Distributor") return "Domestic_Winery_ToDistributor";
-    if (whoAmI === "Retailer")    return "Domestic_Winery_ToRetailer";
-
-    // Supplier is a layer between Domestic Winery and markets.
-    // Supplier buys from Domestic Winery and then sells on to Distributor or Retailer.
-    if (whoAmI === "Supplier")    return "Domestic_Supplier_ToDistributor";
-
-    return null;
-  }
-
-  // 4. Domestic supplier flows - Distributor or Retailer buying from Supplier
-  if (buyingFrom === "Supplier") {
-    // Supplier stock is US based by definition here.
-    if (whoAmI === "Distributor") return "Domestic_Supplier_ToDistributor";
-    if (whoAmI === "Retailer")    return "Domestic_Supplier_ToRetailer";
-    return null;
-  }
-
-  return null;
+  return {
+    model: 'Domestic_Supplier_ToDistributor',
+    casePack,
+    landedCase: distributorLaidInCase,
+    wholesaleCase,
+    wholesaleBottle,
+    srpBottle,
+    supplierRevenuePerCase: supplierBaseCase,
+    recapGrossProfitPerCase: distributorMarginPerCase,
+    recap: {
+      distributorMarginPerCase,
+      retailerMarginPerCase,
+    },
+  };
 }
 
-// ---- EXPORTS ----
+// ---- DOMESTIC SUPPLIER -> RETAILER ----
+function calculateDomesticSupplierToRetailer(input) {
+  const casePack = input.casePack || 12;
+
+  const supplierBaseCase = (input.exCellarBottle || 0) * casePack;
+
+  const retailerLaidInCase = supplierBaseCase + (input.statesideLogisticsPerCase || 0);
+
+  const wholesaleCase = retailerLaidInCase;
+  const wholesaleBottle = wholesaleCase / casePack;
+
+  const srpBottle = applyMarginOnSelling(
+    wholesaleBottle,
+    input.retailerMarginPercent || 0
+  );
+  const srpCase = srpBottle * casePack;
+
+  const retailerMarginPerCase = srpCase - wholesaleCase;
+
+  return {
+    model: 'Domestic_Supplier_ToRetailer',
+    casePack,
+    landedCase: retailerLaidInCase,
+    wholesaleCase,
+    wholesaleBottle,
+    srpBottle,
+    supplierRevenuePerCase: supplierBaseCase,
+    recapGrossProfitPerCase: retailerMarginPerCase,
+    recap: {
+      retailerMarginPerCase,
+    },
+  };
+}
+
+// ---- SCENARIO TABLE ----
+// Map (whoAmI, sellingTo, inventory) -> modelId
+const SCENARIOS = [
+  // Euro Winery exporting DI or SS
+  {
+    whoAmI: TradeActor.EuroWinery,
+    sellingTo: Counterparty.Importer,
+    inventory: InventoryContext.Euro_FOB_Winery,
+    modelId: 'ImportedModelDI',
+  },
+  {
+    whoAmI: TradeActor.EuroWinery,
+    sellingTo: Counterparty.Distributor,
+    inventory: InventoryContext.Euro_FOB_Winery,
+    modelId: 'ImportedModelDI',
+  },
+  {
+    whoAmI: TradeActor.EuroWinery,
+    sellingTo: Counterparty.Retailer,
+    inventory: InventoryContext.Euro_FOB_Winery,
+    modelId: 'Euro_DI_ToRetailer',
+  },
+  {
+    whoAmI: TradeActor.EuroWinery,
+    sellingTo: Counterparty.Distributor,
+    inventory: InventoryContext.US_Importer_WH,
+    modelId: 'ImportedModelSS',
+  },
+
+  // Importer selling DI vs SS
+  {
+    whoAmI: TradeActor.Importer,
+    sellingTo: Counterparty.Distributor,
+    inventory: InventoryContext.Euro_FOB_Winery,
+    modelId: 'ImportedModelDI',
+  },
+  {
+    whoAmI: TradeActor.Importer,
+    sellingTo: Counterparty.Distributor,
+    inventory: InventoryContext.US_Importer_WH,
+    modelId: 'ImportedModelSS',
+  },
+
+  // Domestic Winery
+  {
+    whoAmI: TradeActor.DomesticWinery,
+    sellingTo: Counterparty.Distributor,
+    inventory: InventoryContext.US_Winery,
+    modelId: 'Domestic_Winery_ToDistributor',
+  },
+  {
+    whoAmI: TradeActor.DomesticWinery,
+    sellingTo: Counterparty.Retailer,
+    inventory: InventoryContext.US_Winery,
+    modelId: 'Domestic_Winery_ToRetailer',
+  },
+
+  // Supplier
+  {
+    whoAmI: TradeActor.Supplier,
+    sellingTo: Counterparty.Distributor,
+    inventory: InventoryContext.US_Supplier_WH,
+    modelId: 'Domestic_Supplier_ToDistributor',
+  },
+  {
+    whoAmI: TradeActor.Supplier,
+    sellingTo: Counterparty.Retailer,
+    inventory: InventoryContext.US_Supplier_WH,
+    modelId: 'Domestic_Supplier_ToRetailer',
+  },
+
+  // Distributor → Retailer (imported stock at distributor WH)
+  {
+    whoAmI: TradeActor.Distributor,
+    sellingTo: Counterparty.Retailer,
+    inventory: InventoryContext.US_Distributor_WH,
+    modelId: 'ImportedModelSS', // treat as SS sale from distributor
+  },
+];
+
+// ---- RESOLVER ----
+export function resolvePricingModelIdFromContext({ whoAmI, sellingTo, inventory }) {
+  if (!whoAmI || !sellingTo || !inventory) return null;
+
+  const match = SCENARIOS.find(
+    (s) => s.whoAmI === whoAmI && s.sellingTo === sellingTo && s.inventory === inventory
+  );
+
+  return match ? match.modelId : null;
+}
+
+// ---- MAIN DISPATCH ----
 export function calculatePricingV2(state) {
   const {
     whoAmI,
-    buyingFrom,
+    sellingTo: sellingToRaw,
+    buyingFrom, // backward compatibility
     inventory,
     modelId: explicitModelId,
     ...rest
   } = state;
 
-  // Primary: use explicit modelId if provided
+  const sellingTo = sellingToRaw || buyingFrom || null;
+
   let modelId = explicitModelId || null;
 
-  // Secondary: try to resolve from the actual actor context
-  if (!modelId && whoAmI && buyingFrom && inventory) {
-    modelId = resolvePricingModelIdFromContext({ whoAmI, buyingFrom, inventory });
+  if (!modelId && whoAmI && sellingTo && inventory) {
+    modelId = resolvePricingModelIdFromContext({ whoAmI, sellingTo, inventory });
   }
 
-  // Fallback: if still null, re-resolve as if the actor were a Distributor
-  if (!modelId && buyingFrom && inventory) {
+  if (!modelId) {
+    return {
+      model: 'UnknownModel',
+      casePack: rest.casePack || 12,
+      landedCase: null,
+      wholesaleCase: null,
+      wholesaleBottle: null,
+      srpBottle: null,
+      wineryRevenuePerCase: null,
+      recapGrossProfitPerCase: null,
+      recap: {},
+    };
+  }
+
+  const input = {
+    ...rest,
+    casePack: rest.casePack || 12,
+  };
+
+  switch (modelId) {
+    case 'ImportedModelDI':
+      return calculateImportedModelDI(input);
+    case 'ImportedModelSS':
+      return calculateImportedModelSS(input);
+    case 'Domestic_Winery_ToDistributor':
+      return calculateDomesticWineryToDistributor(input);
+    case 'Domestic_Winery_ToRetailer':
+      return calculateDomesticWineryToRetail(input);
+    case 'Domestic_Supplier_ToDistributor':
+      return calculateDomesticSupplierToDistributor(input);
+    case 'Domestic_Supplier_ToRetailer':
+      return calculateDomesticSupplierToRetailer(input);
+    case 'Euro_DI_ToRetailer':
+      return calculateEuroWineryToRetailerDI(input);
+    default:
+      return {
+        model: 'UnknownModel',
+        casePack: input.casePack,
+        landedCase: null,
+        wholesaleCase: null,
+        wholesaleBottle: null,
+        srpBottle: null,
+        wineryRevenuePerCase: null,
+        recapGrossProfitPerCase: null,
+        recap: {},
+      };
+  }
+}
+
+// ---- EXPORT CALCS IF NEEDED ----
+export {
+  calculateDomesticWineryToDistributor,
+  calculateDomesticWineryToRetail,
+  calculateImportedModelDI,
+  calculateImportedModelSS,
+  calculateEuroWineryToRetailerDI,
+  calculateDomesticSupplierToDistributor,
+  calculateDomesticSupplierToRetailer,
+};
     modelId = resolvePricingModelIdFromContext({
       whoAmI: TradeActor.Distributor,
       buyingFrom,
@@ -641,3 +641,5 @@ export {
   calculateDomesticSupplierToDistributor,
   calculateDomesticSupplierToRetailer,
 };
+
+*/
