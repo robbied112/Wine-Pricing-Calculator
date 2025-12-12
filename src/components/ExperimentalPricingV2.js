@@ -1,430 +1,472 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  calculatePricingV2,
-  BusinessType,
-  InventoryLocation,
-  SellTo,
+  TradeActor,
+  PurchaseFrom,
+  InventoryContext,
   RecapActor,
+  calculatePricingV2,
+  resolvePricingModelIdFromContext,
 } from '../lib/pricingEngineV2';
 
-function resolveModel(state) {
-  const { businessType, inventoryLocation, sellTo } = state;
+const warehouseLabels = {
+  Euro_FOB_Winery: 'Euro FOB (Winery)',
+  Euro_US_Warehouse: 'US Warehouse (Euro Stock)',
 
-  if (businessType === BusinessType.DomesticWinery) {
-    if (sellTo === SellTo.Distributor) return 'DomesticWineryToDistributor';
-    if (sellTo === SellTo.Retailer) return 'DomesticWineryToRetail';
-  }
+  Importer_FOB_Europe: 'Euro FOB (Importer)',
+  Importer_US_Warehouse: 'US Warehouse',
 
-  if (businessType === BusinessType.Imported) {
-    if (inventoryLocation === InventoryLocation.EuroWinery && sellTo === SellTo.Distributor) {
-      return 'ImportedModelDI';
-    }
-    if (inventoryLocation === InventoryLocation.USImporterWH && sellTo === SellTo.Distributor) {
-      return 'ImportedModelSS';
-    }
-  }
-
-  return 'UnknownModel';
-}
-
-const visibleFields = {
-  DomesticWineryToDistributor: [
-    'exCellarBottle',
-    'casePack',
-    'statesideLogisticsPerCase',
-    'distributorMarginPercent',
-    'retailerMarginPercent',
-  ],
-  DomesticWineryToRetail: [
-    'exCellarBottle',
-    'casePack',
-    'statesideLogisticsPerCase',
-    'retailerMarginPercent',
-  ],
-  ImportedModelDI: [
-    'exCellarBottle',
-    'casePack',
-    'exchangeRate',
-    'tariffPercent',
-    'diFreightPerCase',
-    'importerMarginPercent',
-    'distributorMarginPercent',
-    'retailerMarginPercent',
-  ],
-  ImportedModelSS: [
-    'exCellarBottle',
-    'casePack',
-    'exchangeRate',
-    'tariffPercent',
-    'diFreightPerCase',
-    'statesideLogisticsPerCase',
-    'importerMarginPercent',
-    'distributorMarginPercent',
-    'retailerMarginPercent',
-  ],
+  Supplier_Warehouse: 'US Warehouse',
+  Distributor_Warehouse: 'US Warehouse',
+  US_Winery: 'US Winery',
 };
+
+const allowedWarehouses = {
+  EuroWinery: [
+    InventoryContext.Euro_FOB_Winery,
+    InventoryContext.Euro_US_Warehouse,
+  ],
+  Importer: [
+    InventoryContext.Importer_FOB_Europe,
+    InventoryContext.Importer_US_Warehouse,
+  ],
+  Distributor: [InventoryContext.Distributor_Warehouse],
+  DomesticWinery: [InventoryContext.US_Winery],
+  Supplier: [InventoryContext.Supplier_Warehouse],
+  Retailer: [InventoryContext.Distributor_Warehouse],
+};
+
+const roleVisibility = {
+  EuroWinery: {
+    exCellarBottle: true,
+    exchangeRate: true,
+    tariffPercent: true,
+    diFreightPerCase: true,
+    statesideLogisticsPerCase: false,
+    importerMarginPercent: true,
+    distributorMarginPercent: true,
+    retailerMarginPercent: true,
+  },
+  Importer: {
+    exCellarBottle: true,
+    exchangeRate: true,
+    tariffPercent: true,
+    diFreightPerCase: true,
+    statesideLogisticsPerCase: true,
+    importerMarginPercent: true,
+    distributorMarginPercent: true,
+    retailerMarginPercent: true,
+  },
+  Distributor: {
+    exCellarBottle: false,
+    exchangeRate: false,
+    tariffPercent: false,
+    diFreightPerCase: false,
+    statesideLogisticsPerCase: true,
+    importerMarginPercent: false,
+    distributorMarginPercent: true,
+    retailerMarginPercent: true,
+  },
+  DomesticWinery: {
+    exCellarBottle: true,
+    exchangeRate: false,
+    tariffPercent: false,
+    diFreightPerCase: false,
+    statesideLogisticsPerCase: true,
+    importerMarginPercent: false,
+    distributorMarginPercent: true,
+    retailerMarginPercent: true,
+  },
+  Supplier: {
+    exCellarBottle: true,
+    exchangeRate: false,
+    tariffPercent: false,
+    diFreightPerCase: false,
+    statesideLogisticsPerCase: true,
+    importerMarginPercent: false,
+    distributorMarginPercent: true,
+    retailerMarginPercent: true,
+  },
+  Retailer: {
+    exCellarBottle: false,
+    exchangeRate: false,
+    tariffPercent: false,
+    diFreightPerCase: false,
+    statesideLogisticsPerCase: true,
+    importerMarginPercent: false,
+    distributorMarginPercent: false,
+    retailerMarginPercent: true,
+  },
+};
+
+function getFieldVisibility(role) {
+  return roleVisibility[role] || {};
+}
 
 const ExperimentalPricingV2 = () => {
   const [state, setState] = useState({
-    businessType: BusinessType.DomesticWinery,
-    inventoryLocation: InventoryLocation.USWinery,
-    sellTo: SellTo.Distributor,
+    // 3-question context
+    whoAmI: TradeActor.Distributor,
+    buyingFrom: PurchaseFrom.EuroWinery,
+    inventory: InventoryContext.Euro_FOB_Winery,
+
+    // recap view
     recapActor: RecapActor.Supplier,
-    currency: 'USD',
-    exchangeRate: 1.0,
+
+    // numeric inputs
+    exCellarBottle: 5,
     casePack: 12,
-    bottleSizeMl: 750,
-    exCellarBottle: 10.0,
-    diFreightPerCase: 13.0,
-    tariffPercent: 0.0,
-    statesideLogisticsPerCase: 10.0,
-    wineryMarginPercent: 20.0,
-    importerMarginPercent: 15.0,
-    distributorMarginPercent: 25.0,
-    retailerMarginPercent: 33.0,
+    exchangeRate: 1.16,
+    tariffPercent: 15,
+    diFreightPerCase: 13,
+    statesideLogisticsPerCase: 10,
+    importerMarginPercent: 30,
+    distributorMarginPercent: 30,
+    retailerMarginPercent: 33,
   });
 
-  const allowedSellTo = {
-    [BusinessType.DomesticWinery]: [SellTo.Distributor, SellTo.Retailer],
-    [BusinessType.Imported]: [SellTo.Distributor], // for now, only Distributor is supported
+  const handleNumberChange = (field) => (e) => {
+    const value = parseFloat(e.target.value);
+    setState((prev) => ({
+      ...prev,
+      [field]: Number.isNaN(value) ? 0 : value,
+    }));
   };
 
-  useEffect(() => {
-    const allowed = allowedSellTo[state.businessType] ?? [];
-    if (!allowed.includes(state.sellTo) && allowed.length > 0) {
-      setState((prev) => ({
-        ...prev,
-        sellTo: allowed[0],
-      }));
-    }
-  }, [state.businessType]);
+  const handleIntChange = (field) => (e) => {
+    const value = parseInt(e.target.value, 10);
+    setState((prev) => ({
+      ...prev,
+      [field]: Number.isNaN(value) ? 0 : value,
+    }));
+  };
 
-  useEffect(() => {
-    if (
-      state.businessType === BusinessType.DomesticWinery &&
-      state.sellTo === SellTo.Retailer &&
-      state.distributorMarginPercent !== 0
-    ) {
-      setState((prev) => ({ ...prev, distributorMarginPercent: 0 }));
-    }
-  }, [state.businessType, state.sellTo]);
+  const handleSelectChange = (field) => (e) => {
+    const value = e.target.value;
+    setState((prev) => {
+      const newState = { ...prev, [field]: value };
 
-  const activeModel = resolveModel(state);
-  const allFields = [
-    'exCellarBottle',
-    'casePack',
-    'exchangeRate',
-    'tariffPercent',
-    'diFreightPerCase',
-    'statesideLogisticsPerCase',
-    'importerMarginPercent',
-    'distributorMarginPercent',
-    'retailerMarginPercent',
+      if (field === 'whoAmI') {
+        // Reset sellTo and inventory based on whoAmI
+        newState.buyingFrom = null;
+        newState.inventory = null;
+      }
+
+      if (field === 'buyingFrom') {
+        // Reset inventory if sellTo changes
+        newState.inventory = null;
+      }
+
+      // Auto-fill or constrain inventoryLocation based on role and sellTo
+      if (field === 'whoAmI' || field === 'buyingFrom') {
+        switch (newState.whoAmI) {
+          case TradeActor.EuroWinery:
+            newState.inventory =
+              newState.buyingFrom === PurchaseFrom.Distributor
+                ? InventoryContext.Distributor_Warehouse
+                : InventoryContext.Euro_FOB_Winery;
+            break;
+          case TradeActor.Importer:
+            newState.inventory =
+              newState.buyingFrom === PurchaseFrom.Distributor
+                ? InventoryContext.Importer_US_Warehouse
+                : InventoryContext.Euro_FOB_Winery;
+            break;
+          case TradeActor.Distributor:
+            newState.inventory = InventoryContext.Distributor_Warehouse;
+            break;
+          case TradeActor.DomesticWinery:
+            newState.inventory = InventoryContext.US_Winery;
+            break;
+          case TradeActor.Supplier:
+            newState.inventory = InventoryContext.Supplier_Warehouse;
+            break;
+          default:
+            break;
+        }
+      }
+
+      return newState;
+    });
+  };
+
+  const filteredSellToOptions = useMemo(() => {
+    switch (state.whoAmI) {
+      case TradeActor.EuroWinery:
+        return [PurchaseFrom.Importer, PurchaseFrom.Distributor];
+      case TradeActor.Importer:
+        return [PurchaseFrom.Distributor];
+      case TradeActor.Distributor:
+        return [PurchaseFrom.Retailer];
+      case TradeActor.DomesticWinery:
+        return [PurchaseFrom.Distributor, PurchaseFrom.Retailer];
+      case TradeActor.Supplier:
+        return [PurchaseFrom.Distributor, PurchaseFrom.Retailer];
+      default:
+        return Object.values(PurchaseFrom);
+    }
+  }, [state.whoAmI]);
+
+  const filteredWarehouseOptions = useMemo(() => {
+    return allowedWarehouses[state.whoAmI] || [];
+  }, [state.whoAmI]);
+
+  const recapViewOptions = [
+    { value: RecapActor.Supplier, label: 'Winery Revenue' },
+    { value: RecapActor.Importer, label: 'Importer Margin' },
+    { value: RecapActor.Distributor, label: 'Distributor Margin' },
+    { value: RecapActor.Retailer, label: 'Retailer Margin' },
   ];
-  const show = (field) => {
-    const fieldsForModel = visibleFields[activeModel];
-    if (!fieldsForModel) {
-      // unknown model, show all fields for safety
-      return allFields.includes(field);
-    }
-    return fieldsForModel.includes(field);
+
+  const modelId = useMemo(
+    () =>
+      resolvePricingModelIdFromContext({
+        whoAmI: state.whoAmI,
+        buyingFrom: state.buyingFrom,
+        inventory: state.inventory,
+      }),
+    [state.whoAmI, state.buyingFrom, state.inventory]
+  );
+
+  const output = useMemo(
+    () => calculatePricingV2({ ...state, modelId }),
+    [state, modelId]
+  );
+
+  const formatMoney = (value) => {
+    if (value == null || Number.isNaN(value)) return '-';
+    return value.toFixed(2);
   };
-  const output = calculatePricingV2(state);
+
+  const visibility = getFieldVisibility(state.whoAmI);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-10 space-y-8">
-      <header className="flex items-center gap-3">
-        <button
-          onClick={() => console.log('Switch to Default Calculator')}
-          className="px-4 py-2 text-sm font-medium rounded-full bg-slate-200 hover:bg-slate-300"
-        >
-          Default Calculator
-        </button>
-        <button
-          onClick={() => console.log('Switch to Experimental V2')}
-          className="px-4 py-2 text-sm font-medium rounded-full bg-slate-900 text-white hover:bg-slate-700"
-        >
-          Experimental V2
-        </button>
-      </header>
-
+      {/* 3-question config */}
       <section className="bg-white rounded-xl shadow-sm p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-slate-900">Configuration</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <h2 className="text-lg font-semibold text-slate-900">Inputs</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <label className="text-sm font-medium text-slate-800">
-            Business Type
+            Who are you?
             <select
-              value={state.businessType}
-              onChange={(e) =>
-                setState((prev) => ({ ...prev, businessType: e.target.value }))
-              }
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+              value={state.whoAmI}
+              onChange={handleSelectChange('whoAmI')}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
             >
-              {Object.values(BusinessType).map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm font-medium text-slate-800">
-            Inventory Location
-            <select
-              value={state.inventoryLocation}
-              onChange={(e) =>
-                setState((prev) => ({ ...prev, inventoryLocation: e.target.value }))
-              }
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
-            >
-              {Object.values(InventoryLocation).map((location) => (
-                <option key={location} value={location}>
-                  {location}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm font-medium text-slate-800">
-            Selling To
-            <select
-              value={state.sellTo}
-              onChange={(e) =>
-                setState((prev) => ({ ...prev, sellTo: e.target.value }))
-              }
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
-            >
-              {allowedSellTo[state.businessType]?.map((sellTo) => (
-                <option key={sellTo} value={sellTo}>
-                  {sellTo}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm font-medium text-slate-800">
-            Recap View
-            <select
-              value={state.recapActor}
-              onChange={(e) =>
-                setState((prev) => ({ ...prev, recapActor: e.target.value }))
-              }
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
-            >
-              {Object.values(RecapActor).map((actor) => (
+              {Object.values(TradeActor).map((actor) => (
                 <option key={actor} value={actor}>
                   {actor}
                 </option>
               ))}
             </select>
           </label>
-        </div>
-      </section>
 
-      <section className="bg-white rounded-xl shadow-sm p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-slate-900">Inputs</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {show('exCellarBottle') && (
+          <label className="text-sm font-medium text-slate-800">
+            Who are you selling to?
+            <select
+              value={state.buyingFrom}
+              onChange={handleSelectChange('buyingFrom')}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+            >
+              {filteredSellToOptions.map((source) => (
+                <option key={source} value={source}>
+                  {source}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-sm font-medium text-slate-800">
+            Where is the inventory?
+            <select
+              value={state.inventory}
+              onChange={handleSelectChange('inventory')}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+            >
+              {filteredWarehouseOptions.map((ctx) => (
+                <option key={ctx} value={ctx}>
+                  {warehouseLabels[ctx] || ctx}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {/* Numeric inputs */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {visibility.exCellarBottle && (
             <label className="text-sm font-medium text-slate-800">
               Ex-Cellar Bottle
               <input
                 type="number"
+                step="0.01"
                 value={state.exCellarBottle}
-                onChange={(e) =>
-                  setState((prev) => ({ ...prev, exCellarBottle: parseFloat(e.target.value) }))
-                }
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+                onChange={handleNumberChange('exCellarBottle')}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
               />
             </label>
           )}
 
-          {show('casePack') && (
-            <label className="text-sm font-medium text-slate-800">
-              Case Pack
-              <div className="flex items-center gap-2 mb-2">
-                {[1, 3, 6, 12, 24].map((size) => (
-                  <button
-                    key={size}
-                    onClick={() => setState((prev) => ({ ...prev, casePack: size }))
-                    }
-                    className={`px-3 py-1 rounded-md text-sm font-medium border ${
-                      state.casePack === size
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {size}
-                  </button>
-                ))}
-                <button
-                  onClick={() => document.getElementById('casePackInput').focus()}
-                  className="px-3 py-1 rounded-md text-sm font-medium border bg-slate-200 text-slate-700"
-                >
-                  Custom
-                </button>
-              </div>
-              <input
-                id="casePackInput"
-                type="number"
-                value={state.casePack}
-                onChange={(e) =>
-                  setState((prev) => ({ ...prev, casePack: parseInt(e.target.value, 10) || 1 }))
-                }
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
-              />
-            </label>
-          )}
-
-          {show('exchangeRate') && (
+          {visibility.exchangeRate && (
             <label className="text-sm font-medium text-slate-800">
               Exchange Rate
               <input
                 type="number"
+                step="0.0001"
                 value={state.exchangeRate}
-                onChange={(e) =>
-                  setState((prev) => ({ ...prev, exchangeRate: parseFloat(e.target.value) }))
-                }
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+                onChange={handleNumberChange('exchangeRate')}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
               />
             </label>
           )}
 
-          {show('tariffPercent') && (
+          {visibility.tariffPercent && (
             <label className="text-sm font-medium text-slate-800">
               Tariff Percent
               <input
                 type="number"
+                step="0.1"
                 value={state.tariffPercent}
-                onChange={(e) =>
-                  setState((prev) => ({ ...prev, tariffPercent: parseFloat(e.target.value) }))
-                }
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+                onChange={handleNumberChange('tariffPercent')}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
               />
             </label>
           )}
 
-          {show('diFreightPerCase') && (
+          {visibility.diFreightPerCase && (
             <label className="text-sm font-medium text-slate-800">
               DI Freight Per Case
               <input
                 type="number"
+                step="0.01"
                 value={state.diFreightPerCase}
-                onChange={(e) =>
-                  setState((prev) => ({ ...prev, diFreightPerCase: parseFloat(e.target.value) }))
-                }
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+                onChange={handleNumberChange('diFreightPerCase')}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
               />
             </label>
           )}
 
-          {show('statesideLogisticsPerCase') && (
+          {visibility.statesideLogisticsPerCase && (
             <label className="text-sm font-medium text-slate-800">
               Stateside Logistics Per Case
               <input
                 type="number"
+                step="0.01"
                 value={state.statesideLogisticsPerCase}
-                onChange={(e) =>
-                  setState((prev) => ({ ...prev, statesideLogisticsPerCase: parseFloat(e.target.value) }))
-                }
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+                onChange={handleNumberChange('statesideLogisticsPerCase')}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
               />
             </label>
           )}
 
-          <label className="text-sm font-medium text-slate-800">
-            Distributor Margin Percent
-            <input
-              type="number"
-              value={state.distributorMarginPercent}
-              onChange={(e) =>
-                setState((prev) => ({ ...prev, distributorMarginPercent: parseFloat(e.target.value) }))
-              }
-              disabled={
-                state.businessType === BusinessType.DomesticWinery &&
-                state.sellTo === SellTo.Retailer
-              }
-              className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70 ${
-                state.businessType === BusinessType.DomesticWinery &&
-                state.sellTo === SellTo.Retailer
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : 'border-slate-300'
-              }`}
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-800">
-            Retailer Margin Percent
-            <input
-              type="number"
-              value={state.retailerMarginPercent}
-              onChange={(e) =>
-                setState((prev) => ({ ...prev, retailerMarginPercent: parseFloat(e.target.value) }))
-              }
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
-            />
-          </label>
-          {show('importerMarginPercent') && (
+          {visibility.importerMarginPercent && (
             <label className="text-sm font-medium text-slate-800">
               Importer Margin Percent
               <input
                 type="number"
+                step="0.1"
                 value={state.importerMarginPercent}
-                onChange={(e) =>
-                  setState((prev) => ({
-                    ...prev,
-                    importerMarginPercent: parseFloat(e.target.value),
-                  }))
-                }
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+                onChange={handleNumberChange('importerMarginPercent')}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
               />
             </label>
           )}
+
+          {visibility.distributorMarginPercent && (
+            <label className="text-sm font-medium text-slate-800">
+              Distributor Margin Percent
+              <input
+                type="number"
+                step="0.1"
+                value={state.distributorMarginPercent}
+                onChange={handleNumberChange('distributorMarginPercent')}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+              />
+            </label>
+          )}
+
+          {visibility.retailerMarginPercent && (
+            <label className="text-sm font-medium text-slate-800">
+              Retailer Margin Percent
+              <input
+                type="number"
+                step="0.1"
+                value={state.retailerMarginPercent}
+                onChange={handleNumberChange('retailerMarginPercent')}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+              />
+            </label>
+          )}
+
+          <label className="text-sm font-medium text-slate-800">
+            Recap View
+            <select
+              value={state.recapActor}
+              onChange={handleSelectChange('recapActor')}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/70"
+            >
+              {recapViewOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </section>
 
+      {/* Results */}
       <section className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <h2 className="text-lg font-semibold text-slate-900">Results</h2>
-        <div className="grid grid-cols-1 gap-4">
-          <div className="flex justify-between text-sm">
-            <span className="text-slate-600">Model</span>
-            <span className="font-semibold text-slate-900">{output.model || '-'}</span>
+        <div className="grid grid-cols-1 gap-3 text-sm">
+          <div className="flex justify-between">
+            <span className="text-slate-600">Resolved model</span>
+            <span className="font-semibold text-slate-900">
+              {output.model || modelId || 'UnknownModel'}
+            </span>
           </div>
-          <div className="flex justify-between text-sm">
+          <div className="flex justify-between">
             <span className="text-slate-600">Wholesale Case</span>
             <span className="font-semibold text-slate-900">
-              {output.wholesaleCase?.toFixed(2) || '-'}
+              {formatMoney(output.wholesaleCase)}
             </span>
           </div>
-          <div className="flex justify-between text-sm">
+          <div className="flex justify-between">
             <span className="text-slate-600">Wholesale Bottle</span>
             <span className="font-semibold text-slate-900">
-              {output.wholesaleBottle?.toFixed(2) || '-'}
+              {formatMoney(output.wholesaleBottle)}
             </span>
           </div>
-          <div className="flex justify-between text-sm">
+          <div className="flex justify-between">
             <span className="text-slate-600">SRP Bottle</span>
             <span className="font-semibold text-slate-900">
-              {output.srpBottle?.toFixed(2) || '-'}
+              {formatMoney(output.srpBottle)}
             </span>
           </div>
-          {state.businessType === BusinessType.DomesticWinery && state.recapActor === RecapActor.Supplier ? (
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-600">Recap Revenue Per Case</span>
-              <span className="font-semibold text-slate-900">
-                {output.wineryRevenuePerCase?.toFixed(2) || '-'}
-              </span>
-            </div>
-          ) : (
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-600">Recap Gross Profit Per Case</span>
-              <span className="font-semibold text-slate-900">
-                {output.recapGrossProfitPerCase?.toFixed(2) || '-'}
-              </span>
-            </div>
-          )}
-          <div className="flex justify-between text-sm">
+          <div className="flex justify-between">
+            <span className="text-slate-600">
+              {state.recapActor === RecapActor.Supplier
+                ? 'Winery Revenue Per Case'
+                : 'Recap Gross Profit Per Case'}
+            </span>
+            <span className="font-semibold text-slate-900">
+              {state.recapActor === RecapActor.Supplier
+                ? formatMoney(output.wineryRevenuePerCase)
+                : formatMoney(output.recapGrossProfitPerCase)}
+            </span>
+          </div>
+          <div className="flex justify-between">
             <span className="text-slate-600">Retailer Margin Per Case</span>
             <span className="font-semibold text-slate-900">
-              {output.recap?.retailerMarginPerCase?.toFixed(2) || '-'}
+              {formatMoney(output.recap?.retailerMarginPerCase)}
             </span>
           </div>
         </div>
+
+        {/* Optional debug JSON - comment out if you don't want it */}
+        {/* <pre className="mt-4 text-xs bg-slate-50 rounded-md p-3 overflow-x-auto">
+          {JSON.stringify(output, null, 2)}
+        </pre> */}
       </section>
     </div>
   );
