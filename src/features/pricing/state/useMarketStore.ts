@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { MarketConfig, MarketPricingInputs, MarketPricingResult } from '@/engine/markets/types';
 import { MARKET_CONFIGS, getMarketConfig } from '@/engine/markets/configs';
 import { calculateMarketPricing, makeDefaultMarketInputs } from '@/engine/markets/genericCalculator';
+import { fetchLiveRates, getRateForMarket, type LiveRatesResult } from '@/engine/fx/fetchRates';
 
 // ---- Saved Scenario type ----
 
@@ -45,6 +46,10 @@ interface MarketStore {
   // Saved scenarios
   savedScenarios: SavedScenario[];
 
+  // Live FX rates
+  liveRates: LiveRatesResult | null;
+  ratesFetching: boolean;
+
   // Actions
   setMarket: (marketId: string) => void;
   setInput: <K extends keyof MarketPricingInputs>(field: K, value: MarketPricingInputs[K]) => void;
@@ -67,6 +72,10 @@ interface MarketStore {
   saveScenario: (name: string) => void;
   loadScenario: (id: string) => void;
   deleteScenario: (id: string) => void;
+
+  // Live FX rates
+  fetchRates: (force?: boolean) => Promise<void>;
+  applyLiveRate: () => void;
 }
 
 // ---- Defaults ----
@@ -96,12 +105,15 @@ export const useMarketStore = create<MarketStore>()(
       marketInputMemory: {},
       savedScenarios: [],
 
+      liveRates: null,
+      ratesFetching: false,
+
       // ---- Market switching with memory ----
 
       setMarket: (marketId) => {
         const market = getMarketConfig(marketId);
         if (!market) return;
-        const { activeMarketId, inputs: currentInputs, marketInputMemory } = get();
+        const { activeMarketId, inputs: currentInputs, marketInputMemory, liveRates } = get();
 
         // Save current market's inputs to memory before switching
         const updatedMemory = { ...marketInputMemory, [activeMarketId]: currentInputs };
@@ -110,6 +122,14 @@ export const useMarketStore = create<MarketStore>()(
         const inputs = updatedMemory[marketId]
           ? { ...updatedMemory[marketId] }
           : makeDefaultMarketInputs(market);
+
+        // Auto-apply live exchange rate if available
+        if (liveRates && market.currency.needsConversion) {
+          const liveRate = getRateForMarket(market, liveRates.rates);
+          if (liveRate !== null) {
+            inputs.exchangeRate = liveRate;
+          }
+        }
 
         const result = calculateMarketPricing(market, inputs);
         set({
@@ -287,6 +307,36 @@ export const useMarketStore = create<MarketStore>()(
         const { savedScenarios } = get();
         set({ savedScenarios: savedScenarios.filter((s) => s.id !== id) });
       },
+
+      // ---- Live FX rates ----
+
+      fetchRates: async (force = false) => {
+        set({ ratesFetching: true });
+        try {
+          const result = await fetchLiveRates(force);
+          if (result) {
+            set({ liveRates: result, ratesFetching: false });
+            // Auto-apply to current market
+            get().applyLiveRate();
+          } else {
+            set({ ratesFetching: false });
+          }
+        } catch {
+          set({ ratesFetching: false });
+        }
+      },
+
+      applyLiveRate: () => {
+        const { activeMarket, inputs, liveRates } = get();
+        if (!liveRates || !activeMarket.currency.needsConversion) return;
+
+        const liveRate = getRateForMarket(activeMarket, liveRates.rates);
+        if (liveRate === null) return;
+
+        const newInputs = { ...inputs, exchangeRate: liveRate };
+        const result = calculateMarketPricing(activeMarket, newInputs);
+        set({ inputs: newInputs, result });
+      },
     }),
     {
       name: 'wine-pricing-studio',
@@ -309,6 +359,8 @@ export const useMarketStore = create<MarketStore>()(
               activeRecapLayer: market.chain[0]?.id || '',
             });
           }
+          // Always fetch live FX rates on app startup (even if no persisted state)
+          setTimeout(() => useMarketStore.getState().fetchRates(), 100);
         };
       },
     },

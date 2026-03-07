@@ -1,8 +1,10 @@
 import { useMarketStore } from '../state/useMarketStore';
 import { NumberInput } from '@/components/ui/NumberInput';
+import { RefreshCw } from 'lucide-react';
+import { getRateForMarket, formatRateAge } from '@/engine/fx/fetchRates';
 
 export function MarketInputForm() {
-  const { activeMarket: market, inputs, setInput, setMargin, setTax, setLogistics, toggleLayer } =
+  const { activeMarket: market, inputs, setInput, setMargin, setTax, setLogistics, toggleLayer, liveRates, ratesFetching, fetchRates } =
     useMarketStore();
 
   const curr = market.currency;
@@ -56,36 +58,74 @@ export function MarketInputForm() {
       </section>
 
       {/* ---- Currency & FX Section ---- */}
-      {curr.needsConversion && (
-        <section>
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-            Currency & FX
-          </h4>
-          <div className="grid grid-cols-2 gap-3">
-            <NumberInput
-              label={`Exchange rate (${curr.source} → ${curr.target})`}
-              value={inputs.exchangeRate || ''}
-              onChange={handleNum((v) => setInput('exchangeRate', v))}
-              step="0.0001"
-            />
-            <NumberInput
-              label="FX buffer"
-              value={inputs.exchangeBuffer || ''}
-              onChange={handleNum((v) => setInput('exchangeBuffer', v))}
-              step="0.1"
-              suffix="%"
-            />
-          </div>
-          {inputs.exchangeRate > 0 && (
-            <div className="mt-2 inline-block bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
-              <span className="text-xs font-semibold text-amber-700">Effective rate</span>
-              <span className="ml-2 text-sm font-bold text-amber-800">
-                {(inputs.exchangeRate * (1 + (inputs.exchangeBuffer || 0) / 100)).toFixed(4)}
-              </span>
+      {curr.needsConversion && (() => {
+        const liveRate = liveRates ? getRateForMarket(market, liveRates.rates) : null;
+        const rateIsDifferent = liveRate !== null && Math.abs(liveRate - inputs.exchangeRate) > 0.0001;
+
+        return (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Currency & FX
+              </h4>
+              {liveRates && (
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span className="text-[10px] text-slate-400">
+                    Live · {formatRateAge(liveRates.fetchedAt)}
+                  </span>
+                  <button
+                    onClick={() => fetchRates(true)}
+                    disabled={ratesFetching}
+                    className="p-0.5 text-slate-400 hover:text-amber-600 transition-colors cursor-pointer disabled:opacity-50"
+                    title="Refresh live rates"
+                  >
+                    <RefreshCw size={11} className={ratesFetching ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+              )}
+              {!liveRates && ratesFetching && (
+                <div className="flex items-center gap-1.5">
+                  <RefreshCw size={11} className="animate-spin text-slate-400" />
+                  <span className="text-[10px] text-slate-400">Fetching rates…</span>
+                </div>
+              )}
             </div>
-          )}
-        </section>
-      )}
+            <div className="grid grid-cols-2 gap-3">
+              <NumberInput
+                label={`Exchange rate (${curr.source} → ${curr.target})`}
+                value={inputs.exchangeRate || ''}
+                onChange={handleNum((v) => setInput('exchangeRate', v))}
+                step="0.0001"
+              />
+              <NumberInput
+                label="FX buffer"
+                value={inputs.exchangeBuffer || ''}
+                onChange={handleNum((v) => setInput('exchangeBuffer', v))}
+                step="0.1"
+                suffix="%"
+              />
+            </div>
+            {/* Live rate nudge — shows if user has manually changed the rate */}
+            {rateIsDifferent && liveRate !== null && (
+              <button
+                onClick={() => setInput('exchangeRate', liveRate)}
+                className="mt-2 text-[11px] text-amber-600 hover:text-amber-800 underline underline-offset-2 cursor-pointer transition-colors"
+              >
+                Apply live rate ({liveRate.toFixed(4)})
+              </button>
+            )}
+            {inputs.exchangeRate > 0 && (
+              <div className="mt-2 inline-block bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+                <span className="text-xs font-semibold text-amber-700">Effective rate</span>
+                <span className="ml-2 text-sm font-bold text-amber-800">
+                  {(inputs.exchangeRate * (1 + (inputs.exchangeBuffer || 0) / 100)).toFixed(4)}
+                </span>
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       {/* ---- Taxes & Duties Section ---- */}
       {market.taxes.filter((t) => t.editable).length > 0 && (
