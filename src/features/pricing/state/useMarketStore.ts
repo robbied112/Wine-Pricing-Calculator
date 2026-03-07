@@ -356,19 +356,21 @@ export const useMarketStore = create<MarketStore>()(
         savedScenarios: state.savedScenarios,
         costInputMode: state.costInputMode,
       }),
+      // Resolve activeMarket immediately from persisted ID so the first
+      // render already has the correct currency symbols / config.
+      merge: (persisted, current) => {
+        const merged = { ...current, ...(persisted as Partial<MarketStore>) };
+        if (merged.activeMarketId) {
+          const market = getMarketConfig(merged.activeMarketId) || MARKET_CONFIGS[0];
+          merged.activeMarket = market;
+          merged.result = calculateMarketPricing(market, merged.inputs);
+          merged.activeRecapLayer = market.chain[0]?.id || '';
+        }
+        return merged;
+      },
       onRehydrateStorage: () => {
-        return (state) => {
-          if (state) {
-            const market = getMarketConfig(state.activeMarketId) || MARKET_CONFIGS[0];
-            const result = calculateMarketPricing(market, state.inputs);
-            useMarketStore.setState({
-              markets: MARKET_CONFIGS,
-              activeMarket: market,
-              result,
-              activeRecapLayer: market.chain[0]?.id || '',
-            });
-          }
-          // Always fetch live FX rates on app startup (even if no persisted state)
+        return () => {
+          // Always fetch live FX rates on app startup
           setTimeout(() => useMarketStore.getState().fetchRates(), 100);
         };
       },
