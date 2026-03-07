@@ -4,10 +4,12 @@ import { RefreshCw } from 'lucide-react';
 import { getRateForMarket, formatRateAge } from '@/engine/fx/fetchRates';
 
 export function MarketInputForm() {
-  const { activeMarket: market, inputs, setInput, setMargin, setTax, setLogistics, toggleLayer, liveRates, ratesFetching, fetchRates } =
+  const { activeMarket: market, inputs, setInput, setMargin, setTax, setLogistics, toggleLayer, liveRates, ratesFetching, fetchRates, costInputMode, setCostInputMode } =
     useMarketStore();
 
   const curr = market.currency;
+  const isCase = costInputMode === 'case';
+  const casePack = inputs.casePack || 12;
 
   const handleNum = (setter: (val: number) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
@@ -15,18 +17,55 @@ export function MarketInputForm() {
     if (!Number.isNaN(num)) setter(num);
   };
 
+  // Display value: if case mode, show costPerBottle × casePack
+  const costDisplay = isCase
+    ? (inputs.costPerBottle ? +(inputs.costPerBottle * casePack).toFixed(2) : '')
+    : (inputs.costPerBottle || '');
+
+  // When user types a cost, convert case→bottle if needed
+  const handleCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    const num = raw === '' ? 0 : Number(raw);
+    if (Number.isNaN(num)) return;
+    const perBottle = isCase ? (casePack > 0 ? num / casePack : 0) : num;
+    setInput('costPerBottle', perBottle);
+  };
+
   return (
     <div className="space-y-6">
       {/* ---- Product Section ---- */}
       <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Product</h4>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Product</h4>
+          <div className="flex bg-slate-100 rounded-md p-0.5">
+            <button
+              onClick={() => setCostInputMode('bottle')}
+              className={[
+                'px-2.5 py-1 text-[11px] font-medium rounded transition-all cursor-pointer',
+                !isCase ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+              ].join(' ')}
+            >
+              / Bottle
+            </button>
+            <button
+              onClick={() => setCostInputMode('case')}
+              className={[
+                'px-2.5 py-1 text-[11px] font-medium rounded transition-all cursor-pointer',
+                isCase ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+              ].join(' ')}
+            >
+              / Case
+            </button>
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <NumberInput
-            label="Cost / bottle"
-            value={inputs.costPerBottle || ''}
-            onChange={handleNum((v) => setInput('costPerBottle', v))}
-            step="0.01"
+            label={isCase ? 'Cost / case' : 'Cost / bottle'}
+            value={costDisplay}
+            onChange={handleCostChange}
+            step={isCase ? '1' : '0.01'}
             prefix={curr.sourceSymbol}
+            hint={isCase && inputs.costPerBottle ? `${curr.sourceSymbol}${inputs.costPerBottle.toFixed(2)} / btl` : undefined}
           />
           <NumberInput
             label="Case pack"

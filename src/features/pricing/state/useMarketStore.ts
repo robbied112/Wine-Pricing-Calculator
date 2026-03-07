@@ -27,6 +27,9 @@ interface MarketStore {
   activeMarketId: string;
   activeMarket: MarketConfig;
 
+  // Cost input mode (UI preference — engine always uses per-bottle)
+  costInputMode: 'bottle' | 'case';
+
   // Scenario A (baseline)
   inputs: MarketPricingInputs;
   result: MarketPricingResult | null;
@@ -51,6 +54,7 @@ interface MarketStore {
   ratesFetching: boolean;
 
   // Actions
+  setCostInputMode: (mode: 'bottle' | 'case') => void;
   setMarket: (marketId: string) => void;
   setInput: <K extends keyof MarketPricingInputs>(field: K, value: MarketPricingInputs[K]) => void;
   setMargin: (layerId: string, value: number) => void;
@@ -92,6 +96,8 @@ export const useMarketStore = create<MarketStore>()(
       activeMarketId: defaultMarket.id,
       activeMarket: defaultMarket,
 
+      costInputMode: 'bottle' as const,
+
       inputs: defaultInputs,
       result: calculateMarketPricing(defaultMarket, defaultInputs),
 
@@ -107,6 +113,8 @@ export const useMarketStore = create<MarketStore>()(
 
       liveRates: null,
       ratesFetching: false,
+
+      setCostInputMode: (mode) => set({ costInputMode: mode }),
 
       // ---- Market switching with memory ----
 
@@ -346,6 +354,7 @@ export const useMarketStore = create<MarketStore>()(
         inputs: state.inputs,
         marketInputMemory: state.marketInputMemory,
         savedScenarios: state.savedScenarios,
+        costInputMode: state.costInputMode,
       }),
       onRehydrateStorage: () => {
         return (state) => {
