@@ -33,8 +33,8 @@ function App() {
 
           {/* Right column: Outputs */}
           <div className="space-y-6">
-            <MarketWaterfall />
             <MarketRecapPanel />
+            <MarketWaterfall />
             <ExportPanel />
           </div>
         </div>

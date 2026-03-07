@@ -169,17 +169,20 @@ describe('Currency Conversion', () => {
 // ---- Tax types ----
 
 describe('Tax Types', () => {
-  it('UK wine duty is per-bottle — scales with case pack', () => {
+  it('UK wine duty is per-liter-alcohol — scales with ABV and bottle size', () => {
     const config = getMarketConfig('uk-import')!;
     const dutyTax = config.taxes.find((t) => t.id === 'uk-duty')!;
-    expect(dutyTax.type).toBe('per_bottle');
+    expect(dutyTax.type).toBe('per_liter_alcohol');
 
     const inputs = makeDefaultMarketInputs(config);
     const result = calculateMarketPricing(config, inputs);
     const dutyStep = result.waterfall.find((w) => w.id === 'tax-uk-duty');
     expect(dutyStep).toBeDefined();
     if (dutyStep) {
-      expect(dutyStep.perCase).toBeCloseTo(dutyTax.defaultValue * inputs.casePack, 2);
+      const litres = inputs.bottleSizeMl / 1000;
+      const abvFraction = inputs.abv / 100;
+      const expected = dutyTax.defaultValue * litres * abvFraction * inputs.casePack;
+      expect(dutyStep.perCase).toBeCloseTo(expected, 2);
     }
   });
 
@@ -217,8 +220,8 @@ describe('Tax Types', () => {
 // ---- Market config registry ----
 
 describe('Market Config Registry', () => {
-  it('has 7 market configs', () => {
-    expect(MARKET_CONFIGS).toHaveLength(7);
+  it('has 8 market configs', () => {
+    expect(MARKET_CONFIGS).toHaveLength(8);
   });
 
   it('all market IDs are unique', () => {

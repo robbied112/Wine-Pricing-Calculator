@@ -33,10 +33,11 @@ export interface ChainLayer {
 // ---- Tax / Duty Layers ----
 
 export type TaxType =
-  | 'percent_of_value'   // e.g., tariff 15% of FOB
-  | 'per_bottle'         // e.g., UK wine duty £2.67/bottle
-  | 'per_liter'          // e.g., NZ excise per liter
-  | 'per_case';          // flat per case
+  | 'percent_of_value'    // e.g., tariff 15% of FOB
+  | 'per_bottle'          // e.g., fixed per-bottle levy
+  | 'per_liter'           // e.g., NZ excise per liter
+  | 'per_liter_alcohol'   // e.g., UK wine duty £30.62/L of pure alcohol (rate × litres × ABV)
+  | 'per_case';           // flat per case
 
 /**
  * When in the chain the tax applies:
@@ -88,7 +89,7 @@ export interface MarketConfig {
   id: string;
   name: string;
   flag: string;           // Emoji flag
-  region: 'Americas' | 'Europe' | 'Asia-Pacific' | 'South America';
+  region: 'Americas' | 'Europe' | 'Asia-Pacific' | 'South America' | 'Africa';
   description: string;
 
   currency: CurrencyConfig;

@@ -6,6 +6,7 @@ import { AUSTRALIA_IMPORT } from './australia';
 import { NEW_ZEALAND_IMPORT } from './new-zealand';
 import { SOUTH_AMERICA_EXPORT } from './south-america';
 import { EU_INTERNAL } from './eu-internal';
+import { SOUTH_AFRICA_IMPORT } from './south-africa';
 
 export const MARKET_CONFIGS: MarketConfig[] = [
   US_IMPORT,
@@ -15,6 +16,7 @@ export const MARKET_CONFIGS: MarketConfig[] = [
   NEW_ZEALAND_IMPORT,
   SOUTH_AMERICA_EXPORT,
   EU_INTERNAL,
+  SOUTH_AFRICA_IMPORT,
 ];
 
 export const MARKET_MAP: Record<string, MarketConfig> = Object.fromEntries(

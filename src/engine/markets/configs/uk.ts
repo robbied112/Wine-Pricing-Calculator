@@ -3,16 +3,17 @@ import type { MarketConfig } from '../types';
 /**
  * UK Import Market
  *
- * UK wine duty is a flat rate per bottle (based on ABV band).
+ * Since Feb 2025, UK wine duty is based on ABV: £30.62 per litre of
+ * pure alcohol (for still wines 8.5–22% ABV).
+ * For a 750ml bottle at 13% ABV: £30.62 × 0.75 × 0.13 = £2.99.
  * VAT at 20% is applied on the final retail price (inclusive).
- * The standard duty rate for still wine 11.5–14.5% ABV is £2.67/75cl bottle.
  */
 export const UK_IMPORT: MarketConfig = {
   id: 'uk-import',
   name: 'UK Import',
   flag: '🇬🇧',
   region: 'Europe',
-  description: 'Wine imported into the UK market. Includes wine duty (per bottle) and VAT at 20%.',
+  description: 'Wine imported into the UK market. Duty is ABV-based (£30.62/LAA) plus VAT at 20%.',
 
   currency: {
     source: 'EUR',
@@ -54,12 +55,14 @@ export const UK_IMPORT: MarketConfig = {
     {
       id: 'uk-duty',
       label: 'UK Wine Duty',
-      inputLabel: 'Wine duty / bottle',
-      type: 'per_bottle',
-      defaultValue: 2.67,
+      inputLabel: 'Duty rate (£/LAA)',
+      type: 'per_liter_alcohol',
+      defaultValue: 30.62,
       timing: 'on_base_cost',
       editable: true,
       formatAs: 'currency_per_unit',
+      requiresAbv: true,
+      requiresBottleSize: true,
     },
     {
       id: 'vat',
@@ -93,8 +96,8 @@ export const UK_IMPORT: MarketConfig = {
     },
   ],
 
-  requiresAbv: false,
-  requiresBottleSize: false,
+  requiresAbv: true,
+  requiresBottleSize: true,
 
   defaults: {
     costPerBottle: 4,

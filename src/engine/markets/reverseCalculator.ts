@@ -64,6 +64,7 @@ export const RETAIL_TIERS: Record<string, number[]> = {
   AUD: [12.99, 15.99, 19.99, 24.99, 29.99],
   NZD: [14.99, 19.99, 24.99, 29.99],
   EUR: [5.99, 7.99, 9.99, 12.99, 14.99],
+  ZAR: [79.99, 99.99, 129.99, 179.99, 249.99, 349.99],
 };
 
 export interface TierResult {

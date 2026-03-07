@@ -281,6 +281,12 @@ function computeTax(
       const bottleLiters = (inputs.bottleSizeMl || 750) / 1000;
       return rate * bottleLiters * casePack;
     }
+    case 'per_liter_alcohol': {
+      // rate is per litre of pure alcohol (e.g., UK £30.62/LAA)
+      const litres = (inputs.bottleSizeMl || 750) / 1000;
+      const abvFraction = (inputs.abv || 13) / 100;
+      return rate * litres * abvFraction * casePack;
+    }
     case 'per_case':
       return rate;
     default:
@@ -302,6 +308,7 @@ function computeLogistics(
 function formatTaxHelper(tax: TaxDef, inputs: MarketPricingInputs): string {
   const rate = inputs.taxes[tax.id] ?? tax.defaultValue;
   if (tax.formatAs === 'percent') return `${rate}% ${tax.label.toLowerCase()}`;
+  if (tax.type === 'per_liter_alcohol') return `${rate}/LAA × ${inputs.abv || 13}% ABV`;
   return `${rate} per unit`;
 }
 

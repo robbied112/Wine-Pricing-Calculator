@@ -173,12 +173,13 @@ describe('calculatePriceTiers', () => {
 // ---- RETAIL_TIERS ----
 
 describe('RETAIL_TIERS', () => {
-  it('has tiers for USD, GBP, AUD, NZD, EUR', () => {
+  it('has tiers for USD, GBP, AUD, NZD, EUR, ZAR', () => {
     expect(RETAIL_TIERS).toHaveProperty('USD');
     expect(RETAIL_TIERS).toHaveProperty('GBP');
     expect(RETAIL_TIERS).toHaveProperty('AUD');
     expect(RETAIL_TIERS).toHaveProperty('NZD');
     expect(RETAIL_TIERS).toHaveProperty('EUR');
+    expect(RETAIL_TIERS).toHaveProperty('ZAR');
   });
 
   it('all tier arrays are sorted ascending', () => {
