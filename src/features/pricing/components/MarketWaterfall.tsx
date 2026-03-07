@@ -47,7 +47,6 @@ export function MarketWaterfall() {
       title="Pricing Snapshot"
       kicker={`${activeMarket.flag} ${activeMarket.name}`}
       accent
-      sticky
     >
       <div className="space-y-0.5">
         {result.waterfall.map((step) => {
