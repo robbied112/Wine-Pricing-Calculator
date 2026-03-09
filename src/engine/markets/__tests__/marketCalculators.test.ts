@@ -265,20 +265,24 @@ describe('makeDefaultMarketInputs', () => {
     }
   });
 
-  it('includes all tax defaults', () => {
+  it('includes all tax defaults (deduplicated by ID)', () => {
     for (const config of MARKET_CONFIGS) {
       const inputs = makeDefaultMarketInputs(config);
-      for (const tax of config.taxes) {
-        expect(inputs.taxes[tax.id]).toBe(tax.defaultValue);
+      const uniqueTaxIds = new Set(config.taxes.map((t) => t.id));
+      for (const taxId of uniqueTaxIds) {
+        const tax = config.taxes.find((t) => t.id === taxId)!;
+        expect(inputs.taxes[taxId]).toBe(tax.defaultValue);
       }
     }
   });
 
-  it('includes all logistics defaults', () => {
+  it('includes all logistics defaults (deduplicated by ID)', () => {
     for (const config of MARKET_CONFIGS) {
       const inputs = makeDefaultMarketInputs(config);
-      for (const log of config.logistics) {
-        expect(inputs.logistics[log.id]).toBe(log.defaultValue);
+      const uniqueLogIds = new Set(config.logistics.map((l) => l.id));
+      for (const logId of uniqueLogIds) {
+        const log = config.logistics.find((l) => l.id === logId)!;
+        expect(inputs.logistics[logId]).toBe(log.defaultValue);
       }
     }
   });
@@ -290,5 +294,169 @@ describe('makeDefaultMarketInputs', () => {
         expect(inputs.activeLayers).toContain(layer.id);
       }
     }
+  });
+
+  it('sets default pathway for markets with pathways', () => {
+    const usConfig = getMarketConfig('us-import')!;
+    const inputs = makeDefaultMarketInputs(usConfig);
+    expect(inputs.pathway).toBe('di');
+  });
+
+  it('does not set pathway for markets without pathways', () => {
+    const ukConfig = getMarketConfig('uk-import')!;
+    const inputs = makeDefaultMarketInputs(ukConfig);
+    expect(inputs.pathway).toBeUndefined();
+  });
+});
+
+// ---- US Import DI vs SS Pathway Tests ----
+
+describe('US Import — DI vs SS Pathways', () => {
+  const usConfig = getMarketConfig('us-import')!;
+
+  // Standard inputs: €5/btl, 12-pack, FX 1.16, 0% buffer, 15% tariff
+  // Margins: importer 30%, distributor 30%, retailer 33%
+  function makeDIInputs() {
+    const inputs = makeDefaultMarketInputs(usConfig);
+    inputs.costPerBottle = 5;
+    inputs.exchangeRate = 1.16;
+    inputs.exchangeBuffer = 0;
+    inputs.taxes['tariff'] = 15;
+    inputs.logistics['freight'] = 13;
+    inputs.margins['importer'] = 30;
+    inputs.margins['distributor'] = 30;
+    inputs.margins['retailer'] = 33;
+    inputs.pathway = 'di';
+    return inputs;
+  }
+
+  function makeSSInputs() {
+    const inputs = makeDIInputs();
+    inputs.pathway = 'ss';
+    inputs.logistics['stateside'] = 10;
+    return inputs;
+  }
+
+  describe('DI pathway — importer margin on FOB, tariff as pass-through', () => {
+    const inputs = makeDIInputs();
+    const result = calculateMarketPricing(usConfig, inputs);
+
+    it('calculates correct base cost in USD', () => {
+      // €5 × 12 × 1.16 = $69.60
+      expect(result.summary.baseCostCaseTarget).toBeCloseTo(69.60, 2);
+    });
+
+    it('importer buys at FOB and sells with margin on FOB only', () => {
+      const importerRecap = result.layerRecaps.find((r) => r.layerId === 'importer')!;
+      // Buy price = FOB = $69.60
+      expect(importerRecap.buyPrice).toBeCloseTo(69.60, 2);
+      // Sell price = $69.60 / (1 - 0.30) = $99.43
+      expect(importerRecap.sellPrice).toBeCloseTo(99.43, 1);
+    });
+
+    it('tariff is calculated on FOB, not on importer sell price', () => {
+      const tariffStep = result.waterfall.find((w) => w.id === 'tax-tariff')!;
+      // 15% of FOB ($69.60) = $10.44
+      expect(tariffStep.perCase).toBeCloseTo(10.44, 2);
+    });
+
+    it('DI freight appears as post-margin logistics', () => {
+      const freightStep = result.waterfall.find((w) => w.id === 'logistics-freight')!;
+      expect(freightStep.perCase).toBeCloseTo(13.0, 2);
+    });
+
+    it('no stateside logistics in DI pathway', () => {
+      const statesideStep = result.waterfall.find((w) => w.id === 'logistics-stateside');
+      expect(statesideStep).toBeUndefined();
+    });
+
+    it('distributor buy price = importer sell + tariff + DI freight', () => {
+      const distRecap = result.layerRecaps.find((r) => r.layerId === 'distributor')!;
+      // $99.43 + $10.44 + $13.00 = $122.87
+      expect(distRecap.buyPrice).toBeCloseTo(122.87, 0);
+    });
+  });
+
+  describe('SS pathway — importer margin on LIC (FOB + freight + tariff)', () => {
+    const inputs = makeSSInputs();
+    const result = calculateMarketPricing(usConfig, inputs);
+
+    it('calculates correct base cost in USD', () => {
+      expect(result.summary.baseCostCaseTarget).toBeCloseTo(69.60, 2);
+    });
+
+    it('importer buys at LIC (FOB + ocean freight + tariff) and margins on LIC', () => {
+      const importerRecap = result.layerRecaps.find((r) => r.layerId === 'importer')!;
+      // LIC = FOB ($69.60) + ocean freight ($13) + tariff ($10.44) = $93.04
+      expect(importerRecap.buyPrice).toBeCloseTo(93.04, 2);
+      // Sell = $93.04 / (1 - 0.30) = $132.91
+      expect(importerRecap.sellPrice).toBeCloseTo(132.91, 1);
+    });
+
+    it('tariff is calculated on FOB and applied before importer margin', () => {
+      const tariffStep = result.waterfall.find((w) => w.id === 'tax-tariff')!;
+      // 15% of FOB ($69.60) = $10.44 — same calculation, different timing
+      expect(tariffStep.perCase).toBeCloseTo(10.44, 2);
+    });
+
+    it('ocean freight appears before importer margin (part of LIC)', () => {
+      const freightStep = result.waterfall.find((w) => w.id === 'logistics-freight')!;
+      expect(freightStep.perCase).toBeCloseTo(13.0, 2);
+      // Verify freight appears BEFORE importer sell in waterfall
+      const freightIdx = result.waterfall.findIndex((w) => w.id === 'logistics-freight');
+      const importerIdx = result.waterfall.findIndex((w) => w.id === 'layer-importer');
+      expect(freightIdx).toBeLessThan(importerIdx);
+    });
+
+    it('stateside logistics appears after importer margin', () => {
+      const statesideStep = result.waterfall.find((w) => w.id === 'logistics-stateside')!;
+      expect(statesideStep.perCase).toBeCloseTo(10.0, 2);
+      // Verify it appears AFTER importer sell in waterfall
+      const statesideIdx = result.waterfall.findIndex((w) => w.id === 'logistics-stateside');
+      const importerIdx = result.waterfall.findIndex((w) => w.id === 'layer-importer');
+      expect(statesideIdx).toBeGreaterThan(importerIdx);
+    });
+
+    it('distributor buy price = importer sell + stateside', () => {
+      const distRecap = result.layerRecaps.find((r) => r.layerId === 'distributor')!;
+      // $132.91 + $10.00 = $142.91
+      expect(distRecap.buyPrice).toBeCloseTo(142.91, 0);
+    });
+
+    it('wholesale matches old SS spec value', () => {
+      // Distributor sell = $142.91 / (1 - 0.30) = $204.16
+      expect(result.summary.wholesaleCase).toBeCloseTo(204.16, 0);
+    });
+
+    it('SRP per bottle matches old SS spec value', () => {
+      // Retailer sell = $204.16 / (1 - 0.33) = $304.72
+      // SRP/btl = $304.72 / 12 = $25.39
+      expect(result.summary.srpBottle).toBeCloseTo(25.39, 1);
+    });
+  });
+
+  describe('SS is more expensive than DI', () => {
+    const diResult = calculateMarketPricing(usConfig, makeDIInputs());
+    const ssResult = calculateMarketPricing(usConfig, makeSSInputs());
+
+    it('SS SRP > DI SRP (importer margins on LIC vs FOB)', () => {
+      expect(ssResult.summary.srpBottle).toBeGreaterThan(diResult.summary.srpBottle);
+    });
+
+    it('SS importer gross profit > DI importer gross profit', () => {
+      const diImporter = diResult.layerRecaps.find((r) => r.layerId === 'importer')!;
+      const ssImporter = ssResult.layerRecaps.find((r) => r.layerId === 'importer')!;
+      expect(ssImporter.grossProfit).toBeGreaterThan(diImporter.grossProfit);
+    });
+  });
+
+  describe('Pathway does not affect non-US markets', () => {
+    it('UK import works unchanged (no pathway)', () => {
+      const ukConfig = getMarketConfig('uk-import')!;
+      const inputs = makeDefaultMarketInputs(ukConfig);
+      expect(inputs.pathway).toBeUndefined();
+      const result = calculateMarketPricing(ukConfig, inputs);
+      expect(result.summary.srpBottle).toBeGreaterThan(0);
+    });
   });
 });

@@ -4,7 +4,7 @@ import { RefreshCw } from 'lucide-react';
 import { getRateForMarket, formatRateAge } from '@/engine/fx/fetchRates';
 
 export function MarketInputForm() {
-  const { activeMarket: market, inputs, setInput, setMargin, setTax, setLogistics, toggleLayer, liveRates, ratesFetching, fetchRates, costInputMode, setCostInputMode } =
+  const { activeMarket: market, inputs, setInput, setMargin, setTax, setLogistics, toggleLayer, setPathway, liveRates, ratesFetching, fetchRates, costInputMode, setCostInputMode } =
     useMarketStore();
 
   const curr = market.currency;
@@ -166,15 +166,46 @@ export function MarketInputForm() {
         );
       })()}
 
+      {/* ---- Pathway Section (DI / SS toggle) ---- */}
+      {market.pathways && market.pathways.length > 1 && (
+        <section>
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+            Import Pathway
+          </h4>
+          <div className="flex bg-slate-100 rounded-lg p-1 gap-1">
+            {market.pathways.map((pw) => (
+              <button
+                key={pw.id}
+                onClick={() => setPathway(pw.id)}
+                className={[
+                  'flex-1 px-3 py-2 text-xs font-semibold rounded-md transition-all cursor-pointer text-center',
+                  inputs.pathway === pw.id
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700',
+                ].join(' ')}
+              >
+                {pw.label}
+              </button>
+            ))}
+          </div>
+          {inputs.pathway && (() => {
+            const activePw = market.pathways!.find((p) => p.id === inputs.pathway);
+            return activePw ? (
+              <p className="text-[11px] text-slate-500 mt-2">{activePw.description}</p>
+            ) : null;
+          })()}
+        </section>
+      )}
+
       {/* ---- Taxes & Duties Section ---- */}
-      {market.taxes.filter((t) => t.editable).length > 0 && (
+      {market.taxes.filter((t) => t.editable && (!t.activeWhen || t.activeWhen === inputs.pathway)).length > 0 && (
         <section>
           <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
             Taxes & Duties
           </h4>
           <div className="grid grid-cols-2 gap-3">
             {market.taxes
-              .filter((t) => t.editable)
+              .filter((t) => t.editable && (!t.activeWhen || t.activeWhen === inputs.pathway))
               .map((tax) => (
                 <NumberInput
                   key={tax.id}
@@ -192,14 +223,14 @@ export function MarketInputForm() {
       )}
 
       {/* ---- Logistics Section ---- */}
-      {market.logistics.filter((l) => l.editable).length > 0 && (
+      {market.logistics.filter((l) => l.editable && (!l.activeWhen || l.activeWhen === inputs.pathway)).length > 0 && (
         <section>
           <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
             Logistics
           </h4>
           <div className="grid grid-cols-2 gap-3">
             {market.logistics
-              .filter((l) => l.editable)
+              .filter((l) => l.editable && (!l.activeWhen || l.activeWhen === inputs.pathway))
               .map((log) => (
                 <NumberInput
                   key={log.id}

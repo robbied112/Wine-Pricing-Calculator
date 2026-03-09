@@ -6,6 +6,8 @@ import type {
   LayerRecap,
   MarketWarning,
   TaxDef,
+  LogisticsDef,
+  TaxTiming,
 } from './types';
 
 /**
@@ -14,6 +16,11 @@ import type {
  * Processes any MarketConfig by walking through its distribution chain,
  * applying taxes and logistics at the appropriate points, and computing
  * margins using the specified mode (margin-on-selling or markup).
+ *
+ * Supports pathway variants (e.g., DI vs SS for US Import) which control:
+ * - Whether taxes/logistics are active
+ * - Whether they apply before or after a layer's margin
+ * - What base value taxes are calculated on (FOB vs running cost)
  */
 export function calculateMarketPricing(
   config: MarketConfig,
@@ -23,6 +30,15 @@ export function calculateMarketPricing(
   const warnings: MarketWarning[] = [];
   const waterfall: WaterfallStep[] = [];
   const layerRecaps: LayerRecap[] = [];
+  const pathway = inputs.pathway;
+
+  // Filter taxes and logistics by active pathway
+  const activeTaxes = config.taxes.filter(
+    (t) => !t.activeWhen || t.activeWhen === pathway,
+  );
+  const activeLogistics = config.logistics.filter(
+    (l) => !l.activeWhen || l.activeWhen === pathway,
+  );
 
   // ---- Step 1: Base cost in source currency ----
   const baseCaseSource = (inputs.costPerBottle || 0) * casePack;
@@ -46,7 +62,7 @@ export function calculateMarketPricing(
 
   // ---- Step 3: Apply base-level taxes (before any margins) ----
   let runningCost = baseCaseTarget;
-  const baseTaxes = config.taxes.filter((t) => t.timing === 'on_base_cost');
+  const baseTaxes = activeTaxes.filter((t) => resolveTiming(t, pathway) === 'on_base_cost');
   for (const tax of baseTaxes) {
     const taxAmount = computeTax(tax, inputs, runningCost, casePack);
     if (taxAmount > 0) {
@@ -63,7 +79,7 @@ export function calculateMarketPricing(
   }
 
   // ---- Step 4: Apply base-level logistics ----
-  const baseLogistics = config.logistics.filter((l) => l.afterLayer === '_base');
+  const baseLogistics = activeLogistics.filter((l) => l.afterLayer === '_base');
   for (const log of baseLogistics) {
     const logAmount = computeLogistics(log, inputs, runningCost);
     if (logAmount > 0) {
@@ -88,43 +104,20 @@ export function calculateMarketPricing(
 
   for (let i = 0; i < activeLayers.length; i++) {
     const layer = activeLayers[i];
+    // Save the buy price at the START of the layer (before any pre-margin additions)
+    // This is used as the base for taxes with baseOn: 'layer_buy_price' (e.g., tariff on FOB)
     const layerBuyPrice = runningCost;
-    const marginPct = inputs.margins[layer.id] ?? layer.defaultMargin;
 
-    // Apply margin
-    let layerSellPrice: number;
-    if (layer.marginMode === 'on_selling') {
-      layerSellPrice = marginPct >= 100 ? Infinity : layerBuyPrice / (1 - marginPct / 100);
-    } else {
-      layerSellPrice = layerBuyPrice * (1 + marginPct / 100);
-    }
-
-    const grossProfit = layerSellPrice - layerBuyPrice;
-
-    waterfall.push({
-      id: `layer-${layer.id}`,
-      label: `${layer.label} Sell`,
-      category: 'margin',
-      perCase: layerSellPrice,
-      perBottle: casePack > 0 ? layerSellPrice / casePack : 0,
-      helper: `${marginPct.toFixed(1)}% ${layer.marginLabel.toLowerCase()}`,
-    });
-
-    layerRecaps.push({
-      layerId: layer.id,
-      label: layer.label,
-      buyPrice: layerBuyPrice,
-      sellPrice: layerSellPrice,
-      grossProfit,
-      marginPercent: marginPct,
-    });
-
-    runningCost = layerSellPrice;
-
-    // Apply taxes that trigger after this layer
-    const afterLayerTaxes = config.taxes.filter((t) => t.timing === `after:${layer.id}`);
-    for (const tax of afterLayerTaxes) {
-      const taxAmount = computeTax(tax, inputs, runningCost, casePack);
+    // ---- Pre-margin taxes (before:{layerId}) ----
+    // These are absorbed into the layer's cost basis (e.g., tariff into LIC for SS)
+    const preMarginTaxes = activeTaxes.filter(
+      (t) => resolveTiming(t, pathway) === `before:${layer.id}`,
+    );
+    for (const tax of preMarginTaxes) {
+      const base = resolveBaseOn(tax, pathway) === 'layer_buy_price'
+        ? layerBuyPrice
+        : runningCost;
+      const taxAmount = computeTax(tax, inputs, base, casePack);
       if (taxAmount > 0) {
         waterfall.push({
           id: `tax-${tax.id}`,
@@ -138,8 +131,85 @@ export function calculateMarketPricing(
       }
     }
 
-    // Apply logistics after this layer
-    const afterLayerLogistics = config.logistics.filter((l) => l.afterLayer === layer.id);
+    // ---- Pre-margin logistics (beforeMargin: true) ----
+    // These are absorbed into the layer's cost basis (e.g., ocean freight into LIC for SS)
+    const preMarginLogistics = activeLogistics.filter(
+      (l) => l.afterLayer === layer.id && l.beforeMargin,
+    );
+    for (const log of preMarginLogistics) {
+      const logAmount = computeLogistics(log, inputs, runningCost);
+      if (logAmount > 0) {
+        waterfall.push({
+          id: `logistics-${log.id}`,
+          label: log.label,
+          category: 'logistics',
+          perCase: logAmount,
+          perBottle: casePack > 0 ? logAmount / casePack : 0,
+        });
+        runningCost += logAmount;
+      }
+    }
+
+    // ---- Apply margin ----
+    // The effective buy price now includes any pre-margin taxes/logistics (LIC for SS)
+    const effectiveBuyPrice = runningCost;
+    const marginPct = inputs.margins[layer.id] ?? layer.defaultMargin;
+
+    let layerSellPrice: number;
+    if (layer.marginMode === 'on_selling') {
+      layerSellPrice = marginPct >= 100 ? Infinity : effectiveBuyPrice / (1 - marginPct / 100);
+    } else {
+      layerSellPrice = effectiveBuyPrice * (1 + marginPct / 100);
+    }
+
+    const grossProfit = layerSellPrice - effectiveBuyPrice;
+
+    waterfall.push({
+      id: `layer-${layer.id}`,
+      label: `${layer.label} Sell`,
+      category: 'margin',
+      perCase: layerSellPrice,
+      perBottle: casePack > 0 ? layerSellPrice / casePack : 0,
+      helper: `${marginPct.toFixed(1)}% ${layer.marginLabel.toLowerCase()}`,
+    });
+
+    layerRecaps.push({
+      layerId: layer.id,
+      label: layer.label,
+      buyPrice: effectiveBuyPrice,
+      sellPrice: layerSellPrice,
+      grossProfit,
+      marginPercent: marginPct,
+    });
+
+    runningCost = layerSellPrice;
+
+    // ---- Post-margin taxes (after:{layerId}) ----
+    const afterLayerTaxes = activeTaxes.filter(
+      (t) => resolveTiming(t, pathway) === `after:${layer.id}`,
+    );
+    for (const tax of afterLayerTaxes) {
+      const base = resolveBaseOn(tax, pathway) === 'layer_buy_price'
+        ? layerBuyPrice
+        : runningCost;
+      const taxAmount = computeTax(tax, inputs, base, casePack);
+      if (taxAmount > 0) {
+        waterfall.push({
+          id: `tax-${tax.id}`,
+          label: tax.label,
+          category: 'tax',
+          perCase: taxAmount,
+          perBottle: casePack > 0 ? taxAmount / casePack : 0,
+          helper: formatTaxHelper(tax, inputs),
+        });
+        runningCost += taxAmount;
+      }
+    }
+
+    // ---- Post-margin logistics ----
+    const afterLayerLogistics = activeLogistics.filter(
+      (l) => l.afterLayer === layer.id && !l.beforeMargin,
+    );
     for (const log of afterLayerLogistics) {
       const logAmount = computeLogistics(log, inputs, runningCost);
       if (logAmount > 0) {
@@ -180,7 +250,7 @@ export function calculateMarketPricing(
   // We'll add this in a second pass for proper ordering
 
   // ---- Step 6: Apply final taxes (VAT/GST) ----
-  const finalTaxes = config.taxes.filter((t) => t.timing === 'on_final');
+  const finalTaxes = activeTaxes.filter((t) => resolveTiming(t, pathway) === 'on_final');
   for (const tax of finalTaxes) {
     const taxAmount = computeTax(tax, inputs, srpCase, casePack);
     if (taxAmount > 0) {
@@ -200,7 +270,7 @@ export function calculateMarketPricing(
   // ---- Step 7: Apply wholesale-level taxes (e.g., WET) ----
   // These need to be recalculated — WET applies to wholesale value
   // and gets passed through to the retailer
-  const wholesaleTaxes = config.taxes.filter((t) => t.timing === 'on_wholesale');
+  const wholesaleTaxes = activeTaxes.filter((t) => resolveTiming(t, pathway) === 'on_wholesale');
   if (wholesaleTaxes.length > 0) {
     // Recalculate: WET is applied on the wholesale value, added to retailer cost
     // This is a simplification — in practice WET calculation is more complex
@@ -260,6 +330,24 @@ export function calculateMarketPricing(
       marginMode: 'on_selling_price',
     },
   };
+}
+
+// ---- Pathway-aware helpers ----
+
+/** Resolve effective tax timing, checking for pathway overrides */
+function resolveTiming(tax: TaxDef, pathway?: string): TaxTiming {
+  if (pathway && tax.pathwayOverrides?.[pathway]?.timing) {
+    return tax.pathwayOverrides[pathway].timing!;
+  }
+  return tax.timing;
+}
+
+/** Resolve effective baseOn, checking for pathway overrides */
+function resolveBaseOn(tax: TaxDef, pathway?: string): 'running_cost' | 'layer_buy_price' {
+  if (pathway && tax.pathwayOverrides?.[pathway]?.baseOn) {
+    return tax.pathwayOverrides[pathway].baseOn!;
+  }
+  return tax.baseOn || 'running_cost';
 }
 
 // ---- Tax computation helpers ----
@@ -339,12 +427,22 @@ export function makeDefaultMarketInputs(config: MarketConfig): MarketPricingInpu
   }
 
   for (const tax of config.taxes) {
-    taxes[tax.id] = tax.defaultValue;
+    // Deduplicate by ID (same tax may appear for multiple pathways)
+    if (!(tax.id in taxes)) {
+      taxes[tax.id] = tax.defaultValue;
+    }
   }
 
   for (const log of config.logistics) {
-    logistics[log.id] = log.defaultValue;
+    // Deduplicate by ID (same logistics may appear for multiple pathways)
+    if (!(log.id in logistics)) {
+      logistics[log.id] = log.defaultValue;
+    }
   }
+
+  // Set default pathway
+  const pathway = config.pathways?.find((p) => p.default)?.id
+    ?? config.pathways?.[0]?.id;
 
   return {
     marketId: config.id,
@@ -358,5 +456,6 @@ export function makeDefaultMarketInputs(config: MarketConfig): MarketPricingInpu
     taxes,
     logistics,
     activeLayers,
+    pathway,
   };
 }

@@ -61,6 +61,7 @@ interface MarketStore {
   setTax: (taxId: string, value: number) => void;
   setLogistics: (logId: string, value: number) => void;
   toggleLayer: (layerId: string) => void;
+  setPathway: (pathwayId: string) => void;
   setActiveRecapLayer: (layerId: string) => void;
   resetToDefaults: () => void;
 
@@ -210,6 +211,17 @@ export const useMarketStore = create<MarketStore>()(
         const newInputs = { ...inputs, activeLayers: Array.from(active) };
         const result = calculateMarketPricing(activeMarket, newInputs);
         set({ inputs: newInputs, result });
+      },
+
+      setPathway: (pathwayId) => {
+        const { activeMarket, inputs, scenarioBEnabled, scenarioBInputs } = get();
+        const newInputs = { ...inputs, pathway: pathwayId };
+        const result = calculateMarketPricing(activeMarket, newInputs);
+        let scenarioBResult = get().scenarioBResult;
+        if (scenarioBEnabled) {
+          scenarioBResult = calculateMarketPricing(activeMarket, scenarioBInputs);
+        }
+        set({ inputs: newInputs, result, scenarioBResult });
       },
 
       setActiveRecapLayer: (layerId) => set({ activeRecapLayer: layerId }),
@@ -363,6 +375,13 @@ export const useMarketStore = create<MarketStore>()(
         if (merged.activeMarketId) {
           const market = getMarketConfig(merged.activeMarketId) || MARKET_CONFIGS[0];
           merged.activeMarket = market;
+          // Ensure pathway is set for markets that define pathways
+          if (market.pathways && !merged.inputs.pathway) {
+            merged.inputs = {
+              ...merged.inputs,
+              pathway: market.pathways.find((p) => p.default)?.id ?? market.pathways[0]?.id,
+            };
+          }
           merged.result = calculateMarketPricing(market, merged.inputs);
           merged.activeRecapLayer = market.chain[0]?.id || '';
         }

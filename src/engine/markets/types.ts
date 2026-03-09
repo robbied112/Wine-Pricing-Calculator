@@ -49,6 +49,7 @@ export type TaxType =
  */
 export type TaxTiming =
   | 'on_base_cost'
+  | `before:${string}`   // Before a layer's margin (part of that layer's cost basis / LIC)
   | `after:${string}`
   | 'on_landed'
   | 'on_wholesale'
@@ -70,6 +71,13 @@ export interface TaxDef {
   requiresAbv?: boolean;
   // Whether this is inclusive in the final price (VAT/GST)
   inclusive?: boolean;
+  /** What value to calculate the tax on (default: 'running_cost').
+   *  'layer_buy_price' = the buy price at the start of the layer (e.g., FOB for importer) */
+  baseOn?: 'running_cost' | 'layer_buy_price';
+  /** Only active when this pathway is selected (undefined = always active) */
+  activeWhen?: string;
+  /** Per-pathway overrides for timing and baseOn */
+  pathwayOverrides?: Record<string, { timing?: TaxTiming; baseOn?: 'running_cost' | 'layer_buy_price' }>;
 }
 
 // ---- Logistics ----
@@ -81,6 +89,19 @@ export interface LogisticsDef {
   defaultValue: number;
   afterLayer: string;     // Applied after this chain layer
   editable: boolean;
+  /** If true, this cost is added before the layer's margin (part of LIC / cost basis) */
+  beforeMargin?: boolean;
+  /** Only active when this pathway is selected (undefined = always active) */
+  activeWhen?: string;
+}
+
+// ---- Pathways ----
+
+export interface PathwayDef {
+  id: string;
+  label: string;
+  description: string;
+  default?: boolean;
 }
 
 // ---- Market Config ----
@@ -111,6 +132,9 @@ export interface MarketConfig {
 
   /** Default input values for this market */
   defaults: MarketDefaults;
+
+  /** Optional pathway variants (e.g., DI vs SS for US Import) */
+  pathways?: PathwayDef[];
 }
 
 export interface MarketDefaults {
@@ -148,6 +172,9 @@ export interface MarketPricingInputs {
 
   // Which chain layers are active (for skippable layers)
   activeLayers: string[];
+
+  // Selected pathway (e.g., 'di' or 'ss' for US Import)
+  pathway?: string;
 }
 
 // ---- Market Pricing Result ----

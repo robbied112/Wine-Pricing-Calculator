@@ -49,21 +49,39 @@ export const US_IMPORT: MarketConfig = {
       inputLabel: 'Tariff rate',
       type: 'percent_of_value',
       defaultValue: 15,
-      timing: 'after:importer',
+      timing: 'after:importer',           // Default (DI): pass-through after importer margin
+      baseOn: 'layer_buy_price',           // Always calculated on FOB cost, not sell price
       editable: true,
       formatAs: 'percent',
+      pathwayOverrides: {
+        ss: { timing: 'before:importer' }, // SS: part of LIC, applied before importer margin
+      },
     },
   ],
 
   logistics: [
+    // DI: freight as pass-through after importer margin
     {
-      id: 'di-freight',
+      id: 'freight',
       label: 'DI Freight',
       type: 'per_case',
       defaultValue: 13,
       afterLayer: 'importer',
       editable: true,
+      activeWhen: 'di',
     },
+    // SS: same ocean freight but absorbed into LIC before importer margin
+    {
+      id: 'freight',
+      label: 'Ocean Freight',
+      type: 'per_case',
+      defaultValue: 13,
+      afterLayer: 'importer',
+      editable: true,
+      activeWhen: 'ss',
+      beforeMargin: true,
+    },
+    // SS: delivery from US warehouse to buyer, after importer margin
     {
       id: 'stateside',
       label: 'Stateside Logistics',
@@ -71,6 +89,7 @@ export const US_IMPORT: MarketConfig = {
       defaultValue: 10,
       afterLayer: 'importer',
       editable: true,
+      activeWhen: 'ss',
     },
   ],
 
@@ -85,4 +104,18 @@ export const US_IMPORT: MarketConfig = {
     exchangeRate: 1.08,
     exchangeBuffer: 2,
   },
+
+  pathways: [
+    {
+      id: 'di',
+      label: 'Direct Import (DI)',
+      description: 'Wine ships directly from overseas to the buyer. Importer margin on FOB only.',
+      default: true,
+    },
+    {
+      id: 'ss',
+      label: 'Stateside (SS)',
+      description: 'Wine sold from US warehouse. Importer margin on full laid-in cost (LIC).',
+    },
+  ],
 };
