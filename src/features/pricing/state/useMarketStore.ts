@@ -360,7 +360,7 @@ export const useMarketStore = create<MarketStore>()(
     }),
     {
       name: 'wine-pricing-studio',
-      version: 1,
+      version: 2, // Bumped: DI/SS pathway support, logistics ID changes
       partialize: (state) => ({
         activeMarketId: state.activeMarketId,
         inputs: state.inputs,
@@ -368,6 +368,23 @@ export const useMarketStore = create<MarketStore>()(
         savedScenarios: state.savedScenarios,
         costInputMode: state.costInputMode,
       }),
+      migrate: (persisted, version) => {
+        if (version < 2) {
+          // v1 → v2: logistics IDs changed (di-freight → freight),
+          // pathway field added. Safest to reset inputs to fresh defaults
+          // while preserving saved scenarios and preferences.
+          const old = persisted as Record<string, unknown>;
+          const marketId = (old.activeMarketId as string) || 'us-import';
+          const market = getMarketConfig(marketId) || MARKET_CONFIGS[0];
+          const freshInputs = makeDefaultMarketInputs(market);
+          return {
+            ...old,
+            inputs: freshInputs,
+            marketInputMemory: {}, // Clear stale per-market memory
+          };
+        }
+        return persisted;
+      },
       // Resolve activeMarket immediately from persisted ID so the first
       // render already has the correct currency symbols / config.
       merge: (persisted, current) => {
