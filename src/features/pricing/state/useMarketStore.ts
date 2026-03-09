@@ -4,24 +4,16 @@ import type { MarketConfig, MarketPricingInputs, MarketPricingResult } from '@/e
 import { MARKET_CONFIGS, getMarketConfig } from '@/engine/markets/configs';
 import { calculateMarketPricing, makeDefaultMarketInputs } from '@/engine/markets/genericCalculator';
 import { fetchLiveRates, getRateForMarket, type LiveRatesResult } from '@/engine/fx/fetchRates';
-
-// ---- Saved Scenario type ----
-
-export interface SavedScenario {
-  id: string;
-  name: string;
-  marketId: string;
-  marketName: string;
-  marketFlag: string;
-  inputs: MarketPricingInputs;
-  srpBottle: number;
-  currencySymbol: string;
-  createdAt: number;
-}
+import type { PortfolioWine, WhatIfOverrides, WhatIfResult } from '@/features/portfolio/types';
+import { DEFAULT_WHAT_IF_OVERRIDES } from '@/features/portfolio/types';
+import { calculateWhatIf } from '@/features/portfolio/lib/whatIf';
 
 // ---- Store interface ----
 
 interface MarketStore {
+  // Navigation
+  activeView: 'calculator' | 'portfolio';
+
   // Market selection
   markets: MarketConfig[];
   activeMarketId: string;
@@ -46,14 +38,23 @@ interface MarketStore {
   // Per-market input memory (auto-saved when switching markets)
   marketInputMemory: Record<string, MarketPricingInputs>;
 
-  // Saved scenarios
-  savedScenarios: SavedScenario[];
+  // Portfolio
+  portfolio: PortfolioWine[];
+  editingWineId: string | null;
+
+  // What-If
+  whatIfOverrides: WhatIfOverrides;
+  whatIfResults: WhatIfResult[] | null;
+  whatIfActive: boolean;
 
   // Live FX rates
   liveRates: LiveRatesResult | null;
   ratesFetching: boolean;
 
-  // Actions
+  // Navigation actions
+  setActiveView: (view: 'calculator' | 'portfolio') => void;
+
+  // Calculator actions
   setCostInputMode: (mode: 'bottle' | 'case') => void;
   setMarket: (marketId: string) => void;
   setInput: <K extends keyof MarketPricingInputs>(field: K, value: MarketPricingInputs[K]) => void;
@@ -73,10 +74,17 @@ interface MarketStore {
   setScenarioBLogistics: (logId: string, value: number) => void;
   setScenarioBInput: <K extends keyof MarketPricingInputs>(field: K, value: MarketPricingInputs[K]) => void;
 
-  // Saved scenarios
-  saveScenario: (name: string) => void;
-  loadScenario: (id: string) => void;
-  deleteScenario: (id: string) => void;
+  // Portfolio
+  addToPortfolio: (name: string, producer: string, notes?: string) => void;
+  updatePortfolioWine: (id: string, updates: Partial<Pick<PortfolioWine, 'name' | 'producer' | 'notes'>>) => void;
+  removeFromPortfolio: (id: string) => void;
+  loadWineIntoCalculator: (id: string) => void;
+  saveCalculatorToWine: (id: string) => void;
+
+  // What-If
+  setWhatIfOverride: <K extends keyof WhatIfOverrides>(field: K, value: WhatIfOverrides[K]) => void;
+  applyWhatIf: () => void;
+  clearWhatIf: () => void;
 
   // Live FX rates
   fetchRates: (force?: boolean) => Promise<void>;
@@ -93,6 +101,8 @@ const defaultInputs = makeDefaultMarketInputs(defaultMarket);
 export const useMarketStore = create<MarketStore>()(
   persist(
     (set, get) => ({
+      activeView: 'calculator' as const,
+
       markets: MARKET_CONFIGS,
       activeMarketId: defaultMarket.id,
       activeMarket: defaultMarket,
@@ -110,10 +120,20 @@ export const useMarketStore = create<MarketStore>()(
       activeRecapLayer: defaultMarket.chain[0]?.id || '',
 
       marketInputMemory: {},
-      savedScenarios: [],
+
+      portfolio: [],
+      editingWineId: null,
+
+      whatIfOverrides: { ...DEFAULT_WHAT_IF_OVERRIDES },
+      whatIfResults: null,
+      whatIfActive: false,
 
       liveRates: null,
       ratesFetching: false,
+
+      // ---- Navigation ----
+
+      setActiveView: (view) => set({ activeView: view }),
 
       setCostInputMode: (mode) => set({ costInputMode: mode }),
 
@@ -151,6 +171,7 @@ export const useMarketStore = create<MarketStore>()(
           scenarioBResult: null,
           activeRecapLayer: market.chain[0]?.id || '',
           marketInputMemory: updatedMemory,
+          editingWineId: null,
         });
       },
 
@@ -239,6 +260,7 @@ export const useMarketStore = create<MarketStore>()(
           scenarioBInputs: { ...inputs },
           scenarioBResult: null,
           marketInputMemory: updatedMemory,
+          editingWineId: null,
         });
       },
 
@@ -285,47 +307,109 @@ export const useMarketStore = create<MarketStore>()(
         set({ scenarioBInputs: newInputs, scenarioBResult: result });
       },
 
-      // ---- Saved scenarios ----
+      // ---- Portfolio ----
 
-      saveScenario: (name) => {
-        const { activeMarketId, activeMarket, inputs, result, savedScenarios } = get();
-        const scenario: SavedScenario = {
+      addToPortfolio: (name, producer, notes = '') => {
+        const { activeMarketId, activeMarket, inputs, result, portfolio } = get();
+        const wine: PortfolioWine = {
           id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
           name,
+          producer,
+          notes,
           marketId: activeMarketId,
-          marketName: activeMarket.name,
-          marketFlag: activeMarket.flag,
           inputs: JSON.parse(JSON.stringify(inputs)),
-          srpBottle: result?.summary.srpBottle || 0,
-          currencySymbol: activeMarket.currency.symbol,
+          cachedSrpBottle: result?.summary.srpBottle || 0,
+          cachedWholesaleCase: result?.summary.wholesaleCase || 0,
+          cachedLandedCase: result?.summary.landedCase || 0,
+          cachedCurrencySymbol: activeMarket.currency.symbol,
+          cachedMarketName: activeMarket.name,
+          cachedMarketFlag: activeMarket.flag,
           createdAt: Date.now(),
+          updatedAt: Date.now(),
         };
-        set({ savedScenarios: [scenario, ...savedScenarios] });
+        set({ portfolio: [wine, ...portfolio] });
       },
 
-      loadScenario: (id) => {
-        const { savedScenarios } = get();
-        const scenario = savedScenarios.find((s) => s.id === id);
-        if (!scenario) return;
+      updatePortfolioWine: (id, updates) => {
+        const { portfolio } = get();
+        set({
+          portfolio: portfolio.map((w) =>
+            w.id === id ? { ...w, ...updates, updatedAt: Date.now() } : w,
+          ),
+        });
+      },
 
-        const market = getMarketConfig(scenario.marketId);
+      removeFromPortfolio: (id) => {
+        const { portfolio, editingWineId } = get();
+        set({
+          portfolio: portfolio.filter((w) => w.id !== id),
+          editingWineId: editingWineId === id ? null : editingWineId,
+        });
+      },
+
+      loadWineIntoCalculator: (id) => {
+        const { portfolio } = get();
+        const wine = portfolio.find((w) => w.id === id);
+        if (!wine) return;
+
+        const market = getMarketConfig(wine.marketId);
         if (!market) return;
 
-        const result = calculateMarketPricing(market, scenario.inputs);
+        const inputs = JSON.parse(JSON.stringify(wine.inputs));
+        const result = calculateMarketPricing(market, inputs);
         set({
-          activeMarketId: scenario.marketId,
+          activeView: 'calculator',
+          activeMarketId: wine.marketId,
           activeMarket: market,
-          inputs: { ...scenario.inputs },
+          inputs,
           result,
           scenarioBEnabled: false,
           scenarioBResult: null,
           activeRecapLayer: market.chain[0]?.id || '',
+          editingWineId: id,
         });
       },
 
-      deleteScenario: (id) => {
-        const { savedScenarios } = get();
-        set({ savedScenarios: savedScenarios.filter((s) => s.id !== id) });
+      saveCalculatorToWine: (id) => {
+        const { portfolio, activeMarketId, activeMarket, inputs, result } = get();
+        set({
+          portfolio: portfolio.map((w) =>
+            w.id === id
+              ? {
+                  ...w,
+                  marketId: activeMarketId,
+                  inputs: JSON.parse(JSON.stringify(inputs)),
+                  cachedSrpBottle: result?.summary.srpBottle || 0,
+                  cachedWholesaleCase: result?.summary.wholesaleCase || 0,
+                  cachedLandedCase: result?.summary.landedCase || 0,
+                  cachedCurrencySymbol: activeMarket.currency.symbol,
+                  cachedMarketName: activeMarket.name,
+                  cachedMarketFlag: activeMarket.flag,
+                  updatedAt: Date.now(),
+                }
+              : w,
+          ),
+        });
+      },
+
+      // ---- What-If ----
+
+      setWhatIfOverride: (field, value) => {
+        set({ whatIfOverrides: { ...get().whatIfOverrides, [field]: value } });
+      },
+
+      applyWhatIf: () => {
+        const { portfolio, whatIfOverrides } = get();
+        const results = calculateWhatIf(portfolio, whatIfOverrides);
+        set({ whatIfResults: results, whatIfActive: true });
+      },
+
+      clearWhatIf: () => {
+        set({
+          whatIfOverrides: { ...DEFAULT_WHAT_IF_OVERRIDES },
+          whatIfResults: null,
+          whatIfActive: false,
+        });
       },
 
       // ---- Live FX rates ----
@@ -360,33 +444,63 @@ export const useMarketStore = create<MarketStore>()(
     }),
     {
       name: 'wine-pricing-studio',
-      version: 2, // Bumped: DI/SS pathway support, logistics ID changes
+      version: 3, // v3: Portfolio replaces savedScenarios
       partialize: (state) => ({
         activeMarketId: state.activeMarketId,
         inputs: state.inputs,
         marketInputMemory: state.marketInputMemory,
-        savedScenarios: state.savedScenarios,
         costInputMode: state.costInputMode,
+        activeView: state.activeView,
+        portfolio: state.portfolio,
+        editingWineId: state.editingWineId,
       }),
       migrate: (persisted, version) => {
+        const old = persisted as Record<string, unknown>;
         if (version < 2) {
-          // v1 → v2: logistics IDs changed (di-freight → freight),
-          // pathway field added. Safest to reset inputs to fresh defaults
-          // while preserving saved scenarios and preferences.
-          const old = persisted as Record<string, unknown>;
+          // v1 → v2: logistics IDs changed, pathway field added
           const marketId = (old.activeMarketId as string) || 'us-import';
           const market = getMarketConfig(marketId) || MARKET_CONFIGS[0];
           const freshInputs = makeDefaultMarketInputs(market);
-          return {
-            ...old,
-            inputs: freshInputs,
-            marketInputMemory: {}, // Clear stale per-market memory
-          };
+          old.inputs = freshInputs;
+          old.marketInputMemory = {};
         }
-        return persisted;
+        if (version < 3) {
+          // v2 → v3: Convert savedScenarios to portfolio
+          interface OldScenario {
+            id: string;
+            name: string;
+            marketId: string;
+            marketName: string;
+            marketFlag: string;
+            inputs: MarketPricingInputs;
+            srpBottle: number;
+            currencySymbol: string;
+            createdAt: number;
+          }
+          const savedScenarios = (old.savedScenarios as OldScenario[]) || [];
+          const portfolio: PortfolioWine[] = savedScenarios.map((s) => ({
+            id: s.id,
+            name: s.name,
+            producer: '',
+            notes: '',
+            marketId: s.marketId,
+            inputs: s.inputs,
+            cachedSrpBottle: s.srpBottle,
+            cachedWholesaleCase: 0,
+            cachedLandedCase: 0,
+            cachedCurrencySymbol: s.currencySymbol,
+            cachedMarketName: s.marketName,
+            cachedMarketFlag: s.marketFlag,
+            createdAt: s.createdAt,
+            updatedAt: s.createdAt,
+          }));
+          old.portfolio = portfolio;
+          old.activeView = 'calculator';
+          old.editingWineId = null;
+          delete old.savedScenarios;
+        }
+        return old;
       },
-      // Resolve activeMarket immediately from persisted ID so the first
-      // render already has the correct currency symbols / config.
       merge: (persisted, current) => {
         const merged = { ...current, ...(persisted as Partial<MarketStore>) };
         if (merged.activeMarketId) {
@@ -402,6 +516,28 @@ export const useMarketStore = create<MarketStore>()(
           merged.result = calculateMarketPricing(market, merged.inputs);
           merged.activeRecapLayer = market.chain[0]?.id || '';
         }
+        // Recalculate cached values for migrated portfolio wines
+        if (merged.portfolio) {
+          merged.portfolio = merged.portfolio.map((wine) => {
+            if (wine.cachedWholesaleCase === 0 && wine.cachedSrpBottle > 0) {
+              const wineMarket = getMarketConfig(wine.marketId);
+              if (wineMarket) {
+                const result = calculateMarketPricing(wineMarket, wine.inputs);
+                return {
+                  ...wine,
+                  cachedSrpBottle: result.summary.srpBottle,
+                  cachedWholesaleCase: result.summary.wholesaleCase,
+                  cachedLandedCase: result.summary.landedCase,
+                };
+              }
+            }
+            return wine;
+          });
+        }
+        // Reset transient what-if state
+        merged.whatIfOverrides = { ...DEFAULT_WHAT_IF_OVERRIDES };
+        merged.whatIfResults = null;
+        merged.whatIfActive = false;
         return merged;
       },
       onRehydrateStorage: () => {

@@ -6,45 +6,53 @@ import { MarketWaterfall } from './features/pricing/components/MarketWaterfall';
 import { MarketRecapPanel } from './features/recap/components/MarketRecapPanel';
 import { MarketComparisonPanel } from './features/comparison/components/MarketComparisonPanel';
 import { ExportPanel } from './features/export/components/ExportPanel';
-import { SavedScenariosPanel } from './features/scenarios/components/SavedScenariosPanel';
+import { AddToPortfolioPanel } from './features/portfolio/components/AddToPortfolioPanel';
 import { MultiMarketOverview } from './features/overview/components/MultiMarketOverview';
 import { AnalysisPanel } from './features/analysis/components/AnalysisPanel';
+import { PortfolioView } from './features/portfolio/components/PortfolioView';
+import { useMarketStore } from './features/pricing/state/useMarketStore';
 
 function App() {
+  const activeView = useMarketStore((s) => s.activeView);
+
   return (
     <AppLayout>
-      <div className="space-y-6">
-        {/* Market Selection */}
-        <Card title="Select Your Market" kicker="Step 1">
-          <MarketSelector />
-        </Card>
+      {activeView === 'calculator' ? (
+        <div className="space-y-6">
+          {/* Market Selection */}
+          <Card title="Select Your Market" kicker="Step 1">
+            <MarketSelector />
+          </Card>
 
-        {/* Two-column layout: Inputs on left, Outputs on right */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Left column: Inputs */}
-          <div className="space-y-6">
-            <Card title="Pricing Assumptions" kicker="Step 2">
-              <MarketInputForm />
-            </Card>
+          {/* Two-column layout: Inputs on left, Outputs on right */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Left column: Inputs */}
+            <div className="space-y-6">
+              <Card title="Pricing Assumptions" kicker="Step 2">
+                <MarketInputForm />
+              </Card>
 
-            <MarketComparisonPanel />
-            <SavedScenariosPanel />
+              <MarketComparisonPanel />
+              <AddToPortfolioPanel />
+            </div>
+
+            {/* Right column: Outputs */}
+            <div className="space-y-6">
+              <MarketRecapPanel />
+              <MarketWaterfall />
+              <ExportPanel />
+            </div>
           </div>
 
-          {/* Right column: Outputs */}
-          <div className="space-y-6">
-            <MarketRecapPanel />
-            <MarketWaterfall />
-            <ExportPanel />
-          </div>
+          {/* Full-width: Pricing Intelligence */}
+          <AnalysisPanel />
+
+          {/* Full-width: Multi-Market Overview */}
+          <MultiMarketOverview />
         </div>
-
-        {/* Full-width: Pricing Intelligence */}
-        <AnalysisPanel />
-
-        {/* Full-width: Multi-Market Overview */}
-        <MultiMarketOverview />
-      </div>
+      ) : (
+        <PortfolioView />
+      )}
     </AppLayout>
   );
 }
