@@ -25,24 +25,23 @@ export function calculateWhatIf(
     }
 
     // Tariff override (absolute — "tariffs went to 25%")
+    // Matches any percent-based import duty/tariff across markets
     if (overrides.tariffOverride !== null) {
-      const tariffTax = config.taxes.find((t) => t.id === 'tariff');
+      const TARIFF_IDS = new Set(['tariff', 'import-duty']);
+      const tariffTax = config.taxes.find((t) => TARIFF_IDS.has(t.id));
       if (tariffTax) {
         inputs.taxes = { ...inputs.taxes, [tariffTax.id]: overrides.tariffOverride };
       }
     }
 
     // Freight delta (additive — "$2 more per case")
+    // Applies to the first per_case logistics entry (primary freight/shipping)
     if (overrides.freightDeltaPerCase !== 0) {
-      const freightLogs = config.logistics.filter(
-        (l) => l.type === 'per_case' && (l.id === 'freight' || l.id.includes('freight')),
-      );
-      if (freightLogs.length > 0) {
+      const primaryFreight = config.logistics.find((l) => l.type === 'per_case');
+      if (primaryFreight) {
         inputs.logistics = { ...inputs.logistics };
-        for (const log of freightLogs) {
-          const current = inputs.logistics[log.id] ?? log.defaultValue;
-          inputs.logistics[log.id] = current + overrides.freightDeltaPerCase;
-        }
+        const current = inputs.logistics[primaryFreight.id] ?? primaryFreight.defaultValue;
+        inputs.logistics[primaryFreight.id] = current + overrides.freightDeltaPerCase;
       }
     }
 

@@ -81,6 +81,17 @@ describe('calculateWhatIf', () => {
     expect(results[0].overriddenSrpBottle).toBeGreaterThan(results[0].originalSrpBottle);
   });
 
+  it('tariff override works on AU Import (import-duty)', () => {
+    const wine = makeTestWine('au-import');
+    const originalDuty = wine.inputs.taxes['import-duty'] || 5;
+    const overrides: WhatIfOverrides = {
+      ...DEFAULT_WHAT_IF_OVERRIDES,
+      tariffOverride: originalDuty + 15,
+    };
+    const results = calculateWhatIf([wine], overrides);
+    expect(results[0].overriddenSrpBottle).toBeGreaterThan(results[0].originalSrpBottle);
+  });
+
   it('tariff override is no-op for markets without tariff', () => {
     const wine = makeTestWine('us-domestic'); // No tariff
     const overrides: WhatIfOverrides = { ...DEFAULT_WHAT_IF_OVERRIDES, tariffOverride: 50 };
@@ -102,6 +113,28 @@ describe('calculateWhatIf', () => {
     const overrides: WhatIfOverrides = { ...DEFAULT_WHAT_IF_OVERRIDES, freightDeltaPerCase: -3 };
     const results = calculateWhatIf([wine], overrides);
     expect(results[0].overriddenSrpBottle).toBeLessThan(results[0].originalSrpBottle);
+  });
+
+  it('freight delta works on US Domestic (stateside logistics)', () => {
+    const wine = makeTestWine('us-domestic');
+    const overrides: WhatIfOverrides = { ...DEFAULT_WHAT_IF_OVERRIDES, freightDeltaPerCase: 15 };
+    const results = calculateWhatIf([wine], overrides);
+    expect(results[0].overriddenSrpBottle).toBeGreaterThan(results[0].originalSrpBottle);
+    expect(results[0].deltaSrpBottle).toBeGreaterThan(0);
+  });
+
+  it('freight delta works on UK Import (shipping logistics)', () => {
+    const wine = makeTestWine('uk-import');
+    const overrides: WhatIfOverrides = { ...DEFAULT_WHAT_IF_OVERRIDES, freightDeltaPerCase: 10 };
+    const results = calculateWhatIf([wine], overrides);
+    expect(results[0].overriddenSrpBottle).toBeGreaterThan(results[0].originalSrpBottle);
+  });
+
+  it('freight delta works on AU Import (shipping logistics)', () => {
+    const wine = makeTestWine('au-import');
+    const overrides: WhatIfOverrides = { ...DEFAULT_WHAT_IF_OVERRIDES, freightDeltaPerCase: 10 };
+    const results = calculateWhatIf([wine], overrides);
+    expect(results[0].overriddenSrpBottle).toBeGreaterThan(results[0].originalSrpBottle);
   });
 
   // ---- Combined overrides ----
